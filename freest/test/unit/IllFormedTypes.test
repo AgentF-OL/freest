@@ -170,3 +170,30 @@ where
   type A, B : 1T -> 1S
   type A a = +{Done: Skip, More: B a}
   type B b = +{Done: Skip, More: B (b, b); A b}
+
+-- Refined sessions
+
+case {a: Int | b >= 0} : *T
+
+case {a: Int | a >= b} : *T
+
+case {a: Int | a && a} : *T
+
+case {a: Int | not a} : *T
+
+case {a: Int | a * a > 0} : *T
+
+case {a: Int | a + 'a' == 0} : *T
+
+case {a: Int | a /= 0} : 1S
+
+case A ; B ; Close : 1C
+where
+  type A, B : 1S
+  type A = ?{a: Int | -10 < a && a < 10}
+  type B = {b: Int | -10 < b && b < 10 && b /= 0}
+
+case (\(a : 1S) -> a) A : 1S
+where
+  type A : 1S
+  type A = {a: Int | not (-1 <= a && a <= 1)}
