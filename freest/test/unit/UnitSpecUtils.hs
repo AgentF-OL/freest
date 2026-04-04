@@ -45,11 +45,11 @@ errorsAreFailures, errorsAreSuccesses :: Source -> [Error] -> Expectation
 errorsAreFailures  src es = expectationFailure (showErrors src es)
 errorsAreSuccesses _   _  = return ()
 
-mkEquivalenceSpec :: [FilePath] 
+mkComparisonSpec :: [FilePath] 
                   -> String 
                   -> (Source -> (TK.KindedType, TK.KindedType, K.Kind, M.KindedModule) -> Expectation) 
                   -> Spec
-mkEquivalenceSpec testPaths testDesc testFun = do
+mkComparisonSpec testPaths testDesc testFun = do
   src <- zip testPaths <$> runIO (mapM readFile testPaths)
   let src' = lines <$> Map.fromList src
   case concatMapM (uncurry $ runLexer parseEquivalenceTests) src of

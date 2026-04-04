@@ -1,15 +1,5 @@
-{- |
-Module      :  TypeEquivalence.TypeEquivalence
-Copyright   :  © The FreeST Team
-Maintainer  :  freest-lang@listas.ciencias.ulisboa.pt
-
-Check whether two types are equivalent, by first testing whether they are
-alpha-congruent and, if not, whether they are bisimilar.
--}
-
-module Validation.TypeEquivalence
-  ( equivalent
-  , fromTypes
+module Validation.Subtyping.FromTypes
+  ( fromTypes
   , showGrammar
   )
 where
@@ -23,8 +13,7 @@ import Validation.Kinding ( runSynth, KindCtx )
 import Utils ( internalError )
 import Parser.Unparser
 
-import Language.Simple.Grammar
-import Language.Simple.Bisimulation ( bisimilar )
+import Validation.Subtyping.Grammar
 
 import Data.List qualified as List
 import Data.Maybe
@@ -32,10 +21,7 @@ import Control.Monad.State
 import Data.Map.Strict qualified as Map
 import Prelude hiding ( Word, words )
 import Debug.Trace ( trace )
-
-equivalent :: M.KindedModule -> T.KindedType -> T.KindedType -> Bool
-equivalent mod t u = t == u || bisimilar ps xs ys
-  where (ps, [xs, ys]) = fromTypes mod [t, u]
+import Data.Bitraversable (bimapM)
 
 fromTypes :: M.KindedModule -> [T.KindedType] -> (Productions, [Word])
 fromTypes mod ts =
@@ -55,20 +41,20 @@ word' ctx = \case
   -- W-Skip
   T.Skip{} -> pure []
   -- W-EndVoid (1/2)
-  t@T.End{} -> getNonterminal $ Map.singleton (show t) [bottom]
+  t@T.End{} -> getNonterminal $ Map.singleton (Default $ show t) [bottom]
   -- W-EndVoid (2/2)
-  t@T.Void{} -> getNonterminal $ Map.singleton (show t) [bottom]
+  t@T.Void{} -> getNonterminal $ Map.singleton (Default $ show t) [bottom]
   -- Int, Float, Char, Variant types
-  t@T.Int{} -> getNonterminal $ Map.singleton (show t) []
-  t@T.Float{} -> getNonterminal $ Map.singleton (show t) []
-  t@T.Char{} -> getNonterminal $ Map.singleton (show t) []
-  t@T.DName{} -> getNonterminal $ Map.singleton (show t) []
+  t@T.Int{} -> getNonterminal $ Map.singleton (Default $ show t) []
+  t@T.Float{} -> getNonterminal $ Map.singleton (Default $ show t) []
+  t@T.Char{} -> getNonterminal $ Map.singleton (Default $ show t) []
+  t@T.DName{} -> getNonterminal $ Map.singleton (Default $ show t) []
   -- W-Msg _ TODO: We may need a special case for *?T and *!T
   T.AppMessage _ m p t -> do
     w <- word ctx t
     getNonterminal $ Map.fromList
-      [ (show m ++ show p, [])
-      , ("1", w ++ [bottom])
+      [ (Default $ show m ++ show p, [])
+      , (case p of T.In -> Default "1"; T.Out -> Bang1, w ++ [bottom])
       ]
   -- W-Seq
   T.AppSemi _ t u -> do
@@ -77,22 +63,29 @@ word' ctx = \case
   T.AppDual s (T.AppVar _ a _ ts) -> do
     words <- mapM (word ctx) ts
     getNonterminal $ Map.fromList $
-      ("dual " ++ show a, []) :
-      zip (map show [1..]) (map (++ [bottom]) words)
+      (Default $ "dual " ++ show a, []) :
+      zip (map (Default . show) [1..]) (map (++ [bottom]) words)
   -- *+{} and *&{}
-  t@(T.Choice _ K.Un _ _) -> getNonterminal $ Map.singleton (show t) [bottom]
+  t@(T.Choice _ K.Un _ _) -> getNonterminal $ Map.singleton (Default . show $ t) [bottom]
   -- W-Const, ι T1···Tm with ι being ->, ∀, ∃, variants and choices and with m >= 0 and ∆ ⊢ t : *
-  t@(T.App _ u vs) | isProperType t && (T.isAppArrow t || T.isAppDName t || T.isAppLinChoice t || T.isAppQuant t)-> do
+  T.AppArrow _ m t u -> do
+    word1 <- word ctx t
+    word2 <- word ctx u
+    getNonterminal $ Map.fromList
+      [(Default $ "(" ++ show m ++ "->)", [bottom])
+      ,(Arrow1, word1)
+      ,(Default "2", word2)]
+  t@(T.App _ u vs) | isProperType t && (T.isAppDName t || T.isAppLinChoice t || T.isAppQuant t)-> do
     words <- mapM (word ctx) vs
     getNonterminal $ Map.fromList $
-      (show u, [bottom]) :
-      zip (map show [1..]) words
+      (Default $ show u, [bottom]) :
+      zip (map (Default . show) [1..]) words
   -- W_Var, α T1 ··· Tm with m >= 0 and ∆ ⊢ α: κ1 => ··· => κm => ∗
   t@(T.AppVar _ a _ us) | isProperType t -> do
     words <- mapM (word ctx) us
     getNonterminal $ Map.fromList $
-      (show a, []) :
-      zip (map show [1..]) (map (++ [bottom]) words)
+      (Default $ show a, []) :
+      zip (map (Default . show) [1..]) (map (++ [bottom]) words)
   -- W-μSkip and W-μNSkip
   t | isJust (tNameRedex t) -> do
     modl <- gets modl
@@ -120,8 +113,8 @@ word' ctx = \case
         wtα <- word (Map.insert αk k ctx) $ T.smartApp s t [T.fromVariable αk k]
         wtβ <- word (Map.insert βk k ctx) $ T.smartApp s t [T.fromVariable βk k]
         getNonterminal $ Map.fromList
-          [ ('λ' : unparse αk, wtα)
-          , ('λ' : unparse βk, wtβ)
+          [ (Default $ 'λ' : unparse αk, wtα)
+          , (Default $ 'λ' : unparse βk, wtβ)
           ]
       _ -> do
         -- W-τ, t reduces
@@ -197,7 +190,7 @@ getTransitions x = do
   p <- gets productions
   case p Map.!? x of
     Just transitions -> pure transitions
-    Nothing -> internalError $ "TypeEquivalence.getTransitions: nonterminal " ++ show x ++ " not in map " ++ show p
+    Nothing -> internalError $ "FromTypes.getTransitions: nonterminal " ++ show x ++ " not in map " ++ show p
 
 -- | Get the LHS for given transitions; if no productions for the
 -- transitions are found, add new productions and return its LHS.
@@ -249,7 +242,7 @@ showGrammar (ps, xss) =
 
       showTransition :: Nonterminal -> Terminal -> Word -> String -> String
       showTransition x l xs s =
-        s ++ "\n" ++ showNonterminal x ++ " -> (" ++ l ++ ") " ++ showWord xs
+        s ++ "\n" ++ showNonterminal x ++ " -> (" ++ show l ++ ") " ++ showWord xs
 
       showWord :: Word -> String
       showWord w = unwords (map showNonterminal w)

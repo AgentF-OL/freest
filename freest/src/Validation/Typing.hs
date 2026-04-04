@@ -33,7 +33,7 @@ import Validation.Kinding ( KindCtx )
 import Validation.Kinding qualified as Kinding
 import Validation.Normalisation ( normalise )
 import Validation.Substitution ( subs, subsAll )
-import Validation.TypeEquivalence ( equivalent )
+import Validation.Subtyping.Compare ( subtype )
 
 import Control.Monad
 import Control.Monad.Extra ( ifM, whenM )
@@ -128,7 +128,7 @@ synth modl kctx tctx = \case
     (t, tctx') <- synth modl kctx tctx e
     (m, t1, t2) <- Expose.arrow modl e t
     Kinding.checkK t2 (K.ut (getSpan e)) -- used to be checkSubkindOf
-    checkEquivTypes modl (Left e)
+    checkSubtypeOf modl (Left e)
       (T.AppArrow (getSpan e) m t1 t2)
       (T.AppArrow (getSpan e) K.Lin (T.DName s (K.ut s) (mkUnitId s)) t2)
     return (T.DName s (K.ut s) (mkUnitId s), tctx')
@@ -258,9 +258,9 @@ synthRHS modl kctx tctx fep = \case
 check :: M.KindedModule -> KindCtx -> TypeCtx -> E.KindedExp -> T.KindedType
       -> Validation TypeCtx
 check modl kctx tctx e t = case e of
-  E.Int s _   -> checkEquivTypes modl (Left e) t (T.Int s)   >> pure tctx
-  E.Float s _ -> checkEquivTypes modl (Left e) t (T.Float s) >> pure tctx
-  E.Char s _  -> checkEquivTypes modl (Left e) t (T.Char s)  >> pure tctx
+  E.Int s _   -> checkSubtypeOf modl (Left e) (T.Int s)   t >> pure tctx
+  E.Float s _ -> checkSubtypeOf modl (Left e) (T.Float s) t >> pure tctx
+  E.Char s _  -> checkSubtypeOf modl (Left e) (T.Char s)  t >> pure tctx
   -- Tuples, (e1 ... , en)
   E.Tuple s es ->
     case normalise modl t of
@@ -274,7 +274,7 @@ check modl kctx tctx e t = case e of
     Kinding.checkProperK u
     case (normalise modl t, normalise modl u) of
       (T.List _ t', u') -> do
-        checkEquivTypes modl (Left e) t' u'
+        checkSubtypeOf modl (Left e) u' t'
         return tctx
       _ -> throwE (TypeMismatch s t (T.List (getSpan u) u) (Left e))
     -- Cons, (::) @a e1 e2
@@ -288,27 +288,27 @@ check modl kctx tctx e t = case e of
         throwE (TypeMismatch s t u (Left e))
   E.DCons s i      -> do
     (u,tctx') <- lookupType kctx tctx (Right i)
-    checkEquivTypes modl (Left e) t u
+    checkSubtypeOf modl (Left e) u t
     return tctx'
   E.Var s x       -> do
     (u, tctx') <- lookupType kctx tctx (Left x)
-    checkEquivTypes modl (Left e) t u
+    checkSubtypeOf modl (Left e) u t
     return tctx'
   -- send e1 e2
   E.App s (E.Var s' x) [ExpLevel e1, ExpLevel e2] | external x == "send" -> do -- TODO: remove magic constants (and refactor Syntax.Names).
     (u, tctx') <- synth modl kctx tctx e                                            -- (or not, since these cases are temporary...)
-    checkEquivTypes modl (Left e) t u
+    checkSubtypeOf modl (Left e) u t
     return tctx'
   -- receive e
   E.App s (E.Var s' x) [ExpLevel e] | external x == "receive" -> do
     (u, tctx') <- synth modl kctx tctx e
     (t1, t2) <- Expose.input modl (Right e) u
-    checkEquivTypes modl (Left e) t (T.Tuple s [t1,t2])
+    checkSubtypeOf modl (Left e) (T.Tuple s [t1,t2]) t
     return tctx'
   -- fork e
   E.App s (E.Var s' x) [ExpLevel e] | external x == "fork" -> do
     (u, tctx') <- synth modl kctx tctx e
-    checkEquivTypes modl (Left e) t u
+    checkSubtypeOf modl (Left e) u t
     return tctx'
   -- select l e1 ... en
   E.App s f@(E.Select _ i) as ->
@@ -320,7 +320,7 @@ check modl kctx tctx e t = case e of
         (u, tctx') <- synth modl kctx tctx e'
         ui <- Expose.internalChoice modl e' u i
         (t', tctx'') <- checkArgs modl (E.App s f [ExpLevel e']) kctx tctx' ui as'
-        checkEquivTypes modl (Left e) t t'
+        checkSubtypeOf modl (Left e) t' t
         return tctx''
   E.App s f@(E.SendType s' u) as ->
     case as of
@@ -331,7 +331,7 @@ check modl kctx tctx e t = case e of
         (v, tctx') <- synth modl kctx tctx e'
         (a, _, v') <- Expose.typeOutput modl e' v
         (t', tctx'') <- checkArgs modl (E.App s f [ExpLevel e']) kctx tctx' (subs a u v') as'
-        checkEquivTypes modl (Left e) t t'
+        checkSubtypeOf modl (Left e) t' t
         return tctx''
   E.App s f@(E.ReceiveType s') as ->
     case as of 
@@ -343,12 +343,12 @@ check modl kctx tctx e t = case e of
         (a, k, u') <- Expose.typeInput modl (Right e') u
         let v = T.AppExists (spanFromTo f e') [(a, k)] u'
         (t', tctx'') <- checkArgs modl (E.App (spanFromTo f e') f [ExpLevel e']) kctx tctx' v as'
-        checkEquivTypes modl (Left e) t t'
+        checkSubtypeOf modl (Left e) t' t
         return tctx''
   E.App s f as -> do
     (u, tctx') <- synth modl kctx tctx f
     (v, tctx'') <- checkArgs modl f kctx tctx' u as
-    checkEquivTypes modl (Left e) t v
+    checkSubtypeOf modl (Left e) v t
     return tctx''
   E.Abs s ps m e' -> do
     checkFun modl kctx tctx (Right e) pps (Just m) (E.UnguardedRHS e' Nothing) t
@@ -359,7 +359,7 @@ check modl kctx tctx e t = case e of
       T.AppExists s aks t -> checkPack modl kctx tctx e' ts aks t
       _ -> throwE (TypeMismatchExists s t (Right e))
   E.Asc s e u -> do
-    checkEquivTypes modl (Left e) t u
+    checkSubtypeOf modl (Left e) u t
     check modl kctx tctx e u
   E.Let s ds e' -> do
     (tctxds, kctx', tctx') <- checkDecls modl kctx tctx ds
@@ -388,8 +388,8 @@ check modl kctx tctx e t = case e of
     Kinding.checkChannel u
     case normalise modl t of
       T.Tuple _ [t1,t2] -> do
-        checkEquivTypes modl (Left e) u t1
-        checkEquivTypes modl (Left e) (T.AppDual (getSpan u) u) t2
+        checkSubtypeOf modl (Left e) t1 u
+        checkSubtypeOf modl (Left e) (T.AppDual (getSpan u) u) t2
         return tctx
       _ -> do
         (u, _) <- synth modl kctx tctx e
@@ -401,9 +401,9 @@ check modl kctx tctx e t = case e of
           T.AppLinChoice _ T.Out t1s ->
             case lookup i t1s of
               Just t1i -> do
-                checkEquivTypes modl (Left e) 
-                  (T.AppArrow s' m t1 t1i)
+                checkSubtypeOf modl (Left e) 
                   (T.AppArrow s' m t1 t2 )
+                  (T.AppArrow s' m t1 t1i)
                 return tctx
               Nothing -> throwE (IllegalChoice s i t1)
           _ -> throwE (TypeMismatchSelect s t i e)
@@ -413,9 +413,9 @@ check modl kctx tctx e t = case e of
       T.AppArrow s m t1 t2 -> do
         case normalise modl t2 of
           T.AppQuantS s T.Out a k t2' -> do
-            checkEquivTypes modl (Left e) 
-              (T.AppArrow s m t1 (subs a u t2'))
+            checkSubtypeOf modl (Left e) 
               (T.AppArrow s m t1 t2)
+              (T.AppArrow s m t1 (subs a u t2'))
             return tctx
           _ -> throwE (TypeMismatchSendType s t)
       _ -> throwE (TypeMismatchSendType s t)
@@ -424,9 +424,9 @@ check modl kctx tctx e t = case e of
       T.AppArrow s' m t1 t2 -> do
         case normalise modl t2 of
           T.AppQuantS s'' T.In a k t2' -> do
-            checkEquivTypes modl (Left e) 
-              (T.AppArrow s' m t1 (T.AppExists s'' [(a, k)] t2'))
+            checkSubtypeOf modl (Left e) 
               (T.AppArrow s' m t1 t2)
+              (T.AppArrow s' m t1 (T.AppExists s'' [(a, k)] t2'))
             return tctx
           _ -> throwE (TypeMismatchReceiveType s t)
       _ -> throwE (TypeMismatchReceiveType s t)
@@ -454,7 +454,7 @@ checkDecls modl kctx tctx = foldM checkDecl (Map.empty, kctx, tctx)
         (kctxp, tctxp) <- checkPat modl kctxi p trhs
         forM_ (Map.assocs tctxp) \case
           (Left x, t) -> forM_ (tctxi Map.!? Left x) \u -> 
-            checkEquivTypes modl (Left (E.Var (getSpan x) x)) u t
+            checkSubtypeOf modl (Left (E.Var (getSpan x) x)) t u
           _ -> return ()
         return ( tctxp `Map.union` tctxds
                , kctxp `Map.union` kctxi
@@ -542,7 +542,7 @@ checkFun modl kctx tctx fe ps mm rhs t = checkFun' 0 kctx tctx ps t
           case mti of 
             Just ti -> do
               Kinding.checkProperK ti
-              checkEquivTypes modl (Right pi) ti u
+              checkSubtypeOf modl (Right pi) u ti
             Nothing -> return ()
           case mm of -- TODO: check if this is the right approach, tune error message, revisit multiplicity subtyping or polymorphism
             Just m' -> unless (m' == m) do
@@ -595,15 +595,15 @@ checkPat :: M.KindedModule
 checkPat modl kctx p t = case p of
   -- 0
   E.IntPat    s _   -> do
-    checkEquivTypes modl (Right p) t (T.Int s)
+    checkSubtypeOf modl (Right p) (T.Int s) t
     pure (kctx, Map.empty)
   -- 0.0
   E.FloatPat  s _   -> do
-    checkEquivTypes modl (Right p) t (T.Float s)
+    checkSubtypeOf modl (Right p) (T.Float s) t
     pure (kctx, Map.empty)
   -- 'a'
   E.CharPat   s _   -> do
-    checkEquivTypes modl (Right p) t (T.Char s)
+    checkSubtypeOf modl (Right p) (T.Char s) t
     pure (kctx, Map.empty)
   -- x
   E.VarPat    s x   -> pure (kctx, Map.singleton (Left x) t)
@@ -719,16 +719,16 @@ checkRHS modl kctx tctx ep rhs t = case rhs of
     tctx'' <- check modl kctx' tctx' e t
     typeCtxDifference kctx' tctx'' tctxds
 
--- | Type equivalence. Checks if two types are equivalent, throwing an error
+-- | Type equivalence. Checks if two types match, throwing an error
 -- if they are not. An expression or pattern is provided to locate the error.
-checkEquivTypes :: M.KindedModule 
+checkSubtypeOf :: M.KindedModule 
                 -> Either E.KindedExp E.Pat
                 -> T.KindedType
                 -> T.KindedType
                 -> Validation ()
-checkEquivTypes modl eop t1 t2 =
-  unless (equivalent modl t1 t2) $
-    throwE (TypeMismatch (getSpan eop) t1 t2 eop)
+checkSubtypeOf modl eop t1 t2 =
+  unless (subtype modl t1 t2) $
+    throwE (TypeMismatch (getSpan eop) t2 t1 eop)
 
 -- | Type context equivalence. Checks if two type contexts contain the same
 -- variables and constructors, throwing an error if they do not. An expression

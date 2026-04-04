@@ -5,7 +5,7 @@ import UnitSpecUtils
 import Syntax.Module qualified as M
 import UI.Error (showErrors)
 import Validation.Kinding (runKindModule)
-import Validation.TypeEquivalence ( fromTypes, showGrammar )
+import Validation.Subtyping.FromTypes ( fromTypes, showGrammar )
 
 import Language.Simple.Grammar
 

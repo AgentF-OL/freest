@@ -72,7 +72,8 @@ library:
     - Validation.Kinding
     - Validation.Normalisation
     - Validation.Substitution
-    - Validation.TypeEquivalence
+    - Validation.Subtyping.FromTypes
+    - Validation.Subtyping.Compare
     - Validation.Typing
 executables:
   freest:

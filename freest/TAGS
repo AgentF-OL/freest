@@ -16,7 +16,7 @@ buildDataDecls buildDataDecls31,32
 ./test/unit/UnitSpecUtils.hs,118
 module UnitSpecUtils UnitSpecUtils0,1
 mkKindingSpec mkKindingSpec16,17
-mkEquivalenceSpec mkEquivalenceSpec36,37
+mkComparisonSpec mkComparisonSpec36,37
 
 ./test/unit/KindingValidSpec.hs,80
 module KindingValidSpec KindingValidSpec0,1

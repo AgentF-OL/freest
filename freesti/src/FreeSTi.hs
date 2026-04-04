@@ -24,7 +24,7 @@ import UI.Error (Error, showErrors, Source)
 import Validation.Base
 import Validation.Kinding qualified as Kinding
 import Validation.Normalisation (normalise)
-import Validation.TypeEquivalence (equivalent)
+import Validation.Subtyping.Compare (equivalent)
 import Validation.Typing qualified as Typing
 
 main :: IO ()
