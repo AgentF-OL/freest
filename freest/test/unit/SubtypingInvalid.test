@@ -1,0 +1,225 @@
+-- Refined sessions
+
+case {b: Int | True} <: {a: Int | False} : *T
+
+case {b: Int} <: {a: Int | a >= 0} : *T
+
+case {b: Int | b >= 0} <: {a: Int | a > 1} : *T
+
+case {b: Int | b > 1} <: {a: Int | a == 4 || a == 2} : *T
+
+case {b: Int | b == 4 || b == 2} <: {a: Int | a == 4} : *T
+
+case {b: Int | -10 < b && b < 10} <: {a: Int | -5 < a && a < 5} : *T
+
+case {b: Int | 2 * b < 0} <: {a: Int | not (2 * a >= 5)} : *T
+
+case {b: Int | b + 101 /= 1} <: {a: Int | -100 < a && a < 100} : *T
+
+case {b: Int | 13 <= b && b <= 15} <: {a: Int | 4 + 2 * a == 42} : *T
+
+case B <: A : *T
+where
+  type A, B : *T
+  type A = {a: Int | a /= 0 => a == 1 || a == 2}
+  type B = {b: Int | b == 0 || b == 1 || b == 2 || b == 4}
+
+case B <: A : *T
+where
+  type A, B : *T
+  type A = {a: Int | a > 0 => a > 1 => a > 2 => a > 3 => a > 4 => a > 5}
+  type B = {b: Int | b <= 4 || b > 5 || b == 5}
+
+case B <: A : *T
+where
+  type A, B : *T
+  type A = {a: Int | 2 * a - a >= 0 <=> a < 0}  -- False
+  type B = {b: Int | 2 * b - b >= 0 <=> b >= 0} -- True
+
+case B <: A : *T
+where
+  type A, B : *T
+  type A = {a: Int | (if a < 0 then -1 * a else a) < 10}
+  type B = {b: Int | -11 < b && b < 11}
+
+case C -> B <: A -> D : *T
+where
+  type A, B, C, D : *T
+  type A = {a: Int | a > 0}
+  type B = {b: Int | b > 7}
+  type C = {c: Int | c > 5}
+  type D = {d: Int | d > 2}
+
+case A -> D <: C -> B : *T
+where
+  type A, B, C, D : *T
+  type A = {a: Int | a > 0}
+  type B = {b: Int | b > 7}
+  type C = {c: Int | c > 5}
+  type D = {d: Int | d > 2}
+
+case (C, B) <: (A, D)
+where
+  type A, B, C, D : *T
+  type A = {a: Int | a > 5}
+  type B = {b: Int | b > 7}
+  type C = {c: Int | c > 0}
+  type D = {d: Int | d > 2}
+
+case (A, D) <: (C, B)
+where
+  type A, B, C, D : *T
+  type A = {a: Int | a > 5}
+  type B = {b: Int | b > 7}
+  type C = {c: Int | c > 0}
+  type D = {d: Int | d > 2}
+
+-- from Subtyping context-free session types by Silva et al., (2026)
+-- https://www.sciencedirect.com/science/article/pii/S0304397525006425
+-- TODO - missing test cases for choice and recursion rules
+
+-- S-In X
+case U <: T : 1S
+where
+  type T, U : 1S
+  type T = ?{t: Int | t > 1}
+  type U = ?{u: Int | u > 0}
+
+-- S-Out X
+case U <: T : 1S
+where
+  type T, U : 1S
+  type T = !{t: Int | t > 0}
+  type U = !{u: Int | u > 1}
+
+-- S-InSeqL X
+case ?U ; S <: ?T : 1S
+where -- T <: U && S <: Skip
+  type T, U : *T
+  type S : 1S
+  type T = {t: Int | t > 1}
+  type U = {u: Int | u > 0}
+  type S = Skip
+
+-- S-InSeqR X
+case ?U <: ?T ; S : 1S
+where -- T <: U && S <: Skip
+  type T, U : *T
+  type S : 1S
+  type T = {t: Int | t > 1}
+  type U = {u: Int | u > 0}
+  type S = Skip
+
+-- S-InSeq X
+case ?U ; S <: ?T ; R : 1S
+where -- T <: U && S <: R
+  type T, U : *T
+  type S, R : 1S
+  type T = {t: Int | t > 1}
+  type U = {u: Int | u > 0}
+  type S = ?{s: Int | s > 10}
+  type R = ?{r: Int | r > 5}
+
+-- S-InSeq X
+case ?T ; R <: ?U ; S : 1S
+where -- T <: U && S <: R
+  type T, U : *T
+  type S, R : 1S
+  type T = {t: Int | t > 1}
+  type U = {u: Int | u > 0}
+  type S = ?{s: Int | s > 10}
+  type R = ?{r: Int | r > 5}
+
+-- S-OutSeqL X
+case !U ; S <: !T : 1S
+where -- U <: T && S <: Skip
+  type T, U : *T
+  type S : 1S
+  type T = {t: Int | t > 0}
+  type U = {u: Int | u > 1}
+  type S = Skip
+
+-- S-OutSeqR X
+case !U <: !T ; S : 1S
+where -- U <: T && S <: Skip
+  type T, U : *T
+  type S : 1S
+  type T = {t: Int | t > 0}
+  type U = {u: Int | u > 1}
+  type S = Skip
+
+-- S-OutSeq X
+case !U ; S <: !T ; R : 1S
+where -- U <: T && S <: R
+  type T, U : *T
+  type S, R : 1S
+  type T = {t: Int | t > 0}
+  type U = {u: Int | u > 1}
+  type S = ?{s: Int | s > 10}
+  type R = ?{r: Int | r > 5}
+
+-- S-OutSeq X
+case !T ; R <: !U ; S : 1S
+where -- U <: T && S <: R
+  type T, U : *T
+  type S, R : 1S
+  type T = {t: Int | t > 0}
+  type U = {u: Int | u > 1}
+  type S = ?{s: Int | s > 10}
+  type R = ?{r: Int | r > 5}
+
+-- S-EndSeq (Close) X
+case End ; R <: End ; S : 1C
+where
+  type End : 1C
+  type S, R : 1S
+  type End = Close
+  type S = ?{s: Int | s > 0}
+  type R = ?{r: Int | r > 1}
+
+-- S-EndSeq (Wait) X
+case End ; R <: End ; S : 1C
+where
+  type End : 1C
+  type S, R : 1S
+  type End = Wait
+  type S = ?{s: Int | s > 0}
+  type R = ?{r: Int | r > 1}
+
+-- S-SkipSeqL X
+case Skip ; R <: S : 1S
+where -- S <: R
+  type S, R : 1S
+  type S = ?{s: Int | s > 1}
+  type R = ?{r: Int | r > 0}
+
+-- S-SkipSeqR X
+case R <: Skip ; S : 1S
+where -- S <: R
+  type S, R : 1S
+  type S = ?{s: Int | s > 1}
+  type R = ?{r: Int | r > 0}
+
+-- S-SeqSeqL X
+case R <: (S1 ; S2) ; S3 : 1S
+where -- S1 ; (S2 ; S3) <: R
+  type S1, S2, S3, R, R1, R2, R3 : 1S
+  type S1 = ?{s1: Int | s1 > 1}
+  type S2 = !{s2: Int | s2 > 0}
+  type S3 = ?{s3: Int | s3 > 1}
+  type R = R1 ; R2 ; R3
+  type R1 = ?{r1: Int | r1 > 0}
+  type R2 = !{r2: Int | r2 > 1}
+  type R3 = ?{r3: Int | r3 > 0}
+
+-- S-SeqSeqR X
+case (R1 ; R2) ; R3 <: S : 1S
+where -- S <: R1 ; (R2 ; R3)
+  type S, S1, S2, S3, R1, R2, R3 : 1S
+  type S = S1 ; S2 ; S3
+  type S1 = ?{s1: Int | s1 > 1}
+  type S2 = !{s2: Int | s2 > 0}
+  type S3 = ?{s3: Int | s3 > 1}
+  type R1 = ?{r1: Int | r1 > 0}
+  type R2 = !{r2: Int | r2 > 1}
+  type R3 = ?{r3: Int | r3 > 0}
