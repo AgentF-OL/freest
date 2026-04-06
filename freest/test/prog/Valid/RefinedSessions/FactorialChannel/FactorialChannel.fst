@@ -2,7 +2,7 @@ module FactorialChannel where
 
 {-
 method       | expects            | receives       | from
--------------|--------------------|----------------|-------------
+#############|####################|################|################
 startClient  | Nat func           | Nat funcMain   | main
 factClient   | Int FactMainClient | Nat FactClient | startClient
 factServer   | FactMainServer     | FactServer     | startClient

@@ -2,7 +2,7 @@ module ConditionalNotSubtype where
 
 {-
 method                   | expects             | receives            | from
--------------------------|---------------------|---------------------|-------------
+#########################|#####################|#####################|################
 tripledFromDistanceThree | DistanceThree       | DistanceThree       | main
 tripledFromDistanceFive  | DistanceFive        | DistanceThree       | tripledFromDistanceThree X
 tripledFromDistanceThree | DistanceFiveTripled | DistanceFiveTripled | tripledFromDistanceFive

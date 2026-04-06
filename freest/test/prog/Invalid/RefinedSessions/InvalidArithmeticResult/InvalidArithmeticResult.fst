@@ -1,10 +1,10 @@
-module Arithmetic where
+module InvalidArithmeticResult where
 
 type SmallerThanZero, BetweenFives, Result : *T
 
 type SmallerThanZero = {x: Int | x < 0}
 type BetweenFives    = {y: Int | -5 <= y && y <= 5}
-type Result          = {z: Int | z <= 96}
+type Result          = {z: Int | z <= 95} -- X - can also be 96
 
 -- z:
 --   2 * x -> z <= -2

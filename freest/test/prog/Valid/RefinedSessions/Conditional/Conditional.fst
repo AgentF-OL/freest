@@ -2,16 +2,16 @@ module Conditional where
 
 {-
 method                   | expects             | receives            | from
--------------------------|---------------------|---------------------|-------------
+#########################|#####################|#####################|###################
 tripledFromDistanceThree | DistanceThree       | DistanceThree       | main
 tripledFromDistanceFive  | DistanceFive        | DistanceThree       | tripledFromDistanceThree
 tripledFromDistanceThree | DistanceFiveTripled | DistanceFiveTripled | tripledFromDistanceFive
 main                     | DistanceFiveTripled | DistanceFiveTripled | tripledFromDistanceThree
 
 where
-  receives      <: expects
-  DistanceThree <: DistanceFive
-  ...
+receives      <: expects
+DistanceThree <: DistanceFive
+...
 -}
 
 type DistanceFive, DistanceThree, DistanceFiveTripled : *T
