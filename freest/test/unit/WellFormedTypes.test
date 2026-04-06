@@ -688,7 +688,7 @@ case *&{One, Two} ; !Char : 1C
 
 case *!Int ; !Char : 1C
 
-case *!Int ; !Char : 1C
+case *?Int ; !Char : 1C
 
 case Either : *T -> *T -> *T
 where
