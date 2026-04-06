@@ -1540,3 +1540,72 @@ case (\(a : *T) -> a) A : *T
 where
   type A : *T
   type A = {a: Int | not (-1 <= a && a <= 1)}
+
+case Data : *T
+where
+  type Data : *T
+  data Data =
+      A {a: Int | a >= 0}
+    | B {b1: Int | b1 >= 0} {b2: Int | b2 < 0}
+    | C Int {c: Int | -5 <= c && c <= 5} Char
+    | D Data {d: Int | d == 0 || d == 1} Data
+
+case *!{a: Int | a >= 0} : *C
+
+case *?{a: Int | a >= 0} : *C
+
+case *!(!A ; ?B ; Close) : *C
+where
+  type A, B : *T
+  type A = {a: Int | a >= 0}
+  type B = {b: Int | b < 0}
+
+case *?(!A ; ?B ; Close) : *C
+where
+  type A, B : *T
+  type A = {a: Int | a >= 0}
+  type B = {b: Int | b < 0}
+
+case *&{Offer1: !A ; Wait, Offer2: !B ; Wait} : *C
+where
+  type A, B : *T
+  type A = {a: Int | a == 0}
+  type B = {b: Int | b == 1}
+
+case *+{Choice1: ?A ; Close, Choice2: ?B ; Close} : *C
+where
+  type A, B : *T
+  type A = {a: Int | a == 0}
+  type B = {b: Int | b == 1}
+
+case *!{a: Int | a >= 0} ; !{b: Int | b < 0} : 1C
+
+case *?{a: Int | a >= 0} ; !{b: Int | b < 0} : 1C
+
+case *!(!A ; ?B ; Close) ; !C : 1C
+where
+  type A, B, C : *T
+  type A = {a: Int | a > 0}
+  type B = {b: Int | b < 0}
+  type C = {c: Int | c == 0}
+
+case *?(!A ; ?B ; Close) ; !C : 1C
+where
+  type A, B, C : *T
+  type A = {a: Int | a > 0}
+  type B = {b: Int | b < 0}
+  type C = {c: Int | c == 0}
+
+case *&{Offer1: !A ; Wait, Offer2: !B ; Wait} ; !C : 1C
+where
+  type A, B, C : *T
+  type A = {a: Int | a == 0}
+  type B = {b: Int | b == 1}
+  type C = {c: Int | c == 2}
+
+case *+{Choice1: ?A ; Close, Choice2: ?B ; Close} ; !C : 1C
+where
+  type A, B, C : *T
+  type A = {a: Int | a == 0}
+  type B = {b: Int | b == 1}
+  type C = {c: Int | c == 2}

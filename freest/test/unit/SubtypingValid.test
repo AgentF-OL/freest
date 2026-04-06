@@ -114,7 +114,7 @@ where
 
 -- from Subtyping context-free session types by Silva et al., (2026)
 -- https://www.sciencedirect.com/science/article/pii/S0304397525006425
--- TODO - missing test cases for choice and recursion rules
+-- TODO - missing test cases for choice rules
 
 -- S-In
 case T <: U : 1S
@@ -273,3 +273,58 @@ where -- S <: R1 ; (R2 ; R3)
   type R1 = ?{r1: Int | r1 > 0}
   type R2 = !{r2: Int | r2 > 1}
   type R3 = ?{r3: Int | r3 > 0}
+
+case *?S <: S : *C
+where
+  type S : 1S
+  type S = ?{s: Int | s > 0}
+
+case *!S <: S : *C
+where
+  type S : 1S
+  type S = !{s: Int | s > 0}
+
+case *?S <: R : *C
+where -- S <: R
+  type S, R : 1S
+  type S = ?{s: Int | s > 1}
+  type R = ?{r: Int | r > 0}
+
+case *!S <: R : *C
+where -- S <: R
+  type S, R : 1S
+  type S = !{s: Int | s > 0}
+  type R = !{r: Int | r > 1}
+
+case *?S <: *?R : *C
+where -- S <: R
+  type S, R : 1S
+  type S = ?{s: Int | s > 1}
+  type R = ?{r: Int | r > 0}
+
+case *!S <: *!R : *C
+where -- R <: S
+  type S, R : 1S
+  type S = !{s: Int | s > 1}
+  type R = !{r: Int | r > 0}
+
+-- S-RecSeqL
+case *?S1 ; S2 <: R : *C
+where -- S1 ; S2 <: R
+  type S1, S2, R, R1, R2 : 1S
+  type S1 = ?{s1: Int | s1 > 1}
+  type S2 = !{s2: Int | s2 > 0}
+  type R = R1 ; R2
+  type R1 = ?{r1: Int | r1 > 0}
+  type R2 = !{r2: Int | r2 > 1}
+
+-- S-RecSeqR
+case S <: *?R1 ; R2 : *C
+where -- S <: R1 ; R2
+  type S : *C
+  type S1, S2, R1, R2 : 1S
+  type S = *?S1 ; S2
+  type S1 = ?{s1: Int | s1 > 1}
+  type S2 = !{s2: Int | s2 > 0}
+  type R1 = ?{r1: Int | r1 > 0}
+  type R2 = !{r2: Int | r2 > 1}

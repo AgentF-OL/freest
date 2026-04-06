@@ -197,3 +197,19 @@ case (\(a : 1S) -> a) A : 1S
 where
   type A : 1S
   type A = {a: Int | not (-1 <= a && a <= 1)}
+
+case {a: Int | a > 0} : *C
+
+case ?{a: Int | a > 0} : *C
+
+case !{a: Int | a > 0} : *C
+
+case *{a: Int | a > 0} : *C
+
+case {a: Int | a > 0} ; !{b: Int | b < 0} : 1C
+
+case ?{a: Int | a > 0} ; !{b: Int | b < 0} : 1C
+
+case !{a: Int | a > 0} ; !{b: Int | b < 0} : 1C
+
+case *{a: Int | a > 0} ; !{b: Int | b < 0} : 1C
