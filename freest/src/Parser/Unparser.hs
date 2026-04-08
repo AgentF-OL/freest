@@ -69,7 +69,7 @@ instance Unparse Variable where
   
 instance Unparse (T.Type x) where
   fragment = \case 
-    T.Int  _ _ -> (maxRator, "Int")
+    T.Int{} -> (maxRator, "Int")
     T.Float _ _ -> (maxRator, "Float")
     T.Char _ _ -> (maxRator, "Char")
     T.Arrow _ _ m -> (maxRator, "(" ++ arrow m ++ ")")

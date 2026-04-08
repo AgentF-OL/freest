@@ -15,7 +15,8 @@ import Parser.ParserUtils
 import Syntax.Base 
 import Syntax.Names
 import Syntax.Expression qualified as E 
-import Syntax.Kind qualified as K 
+import Syntax.Kind qualified as K
+import Syntax.Refinement qualified as R
 import Syntax.Type.Unkinded qualified as T 
 import Syntax.Module qualified as M
 import UI.Error
@@ -91,6 +92,9 @@ import Data.List.NonEmpty qualified as NE
   '|>'    { TkPipeGT _ }
   '||'    { TkPipePipe _ }
   '&&'    { TkAmpAmp _ }
+  '=>'    { TkImplies _ }
+  '<=>'   { TkIff _ }
+  'not'   { TkNot _ }
   '+'     { TkPlus _ }
   '++'    { TkPlusPlus _ }
   '+.'    { TkPlusDot _ }
@@ -129,6 +133,7 @@ import Data.List.NonEmpty qualified as NE
   FLOAT_LIT { TkFloatLit _ _ }
   CHAR_LIT { TkCharLit _ _ }
   STRING_LIT {TkStringLit _ _ }
+  BOOL_LIT { TkBoolLit _ _ }
 
   -- Identifiers
   UPPER_ID { TkUpperId _ _ }  
@@ -140,6 +145,7 @@ import Data.List.NonEmpty qualified as NE
 %right    ':'
 %right    'in' 'else' 'case'
 %right    '.'
+%left     '<=>'
 %right    '=>' '->' '1->' '*->' ARROW
 %right    ';' SEMI
 %left     '@'
@@ -280,12 +286,12 @@ ProperKind :: { K.Kind }
 
 TypePrimary :: { T.ParsedType }
   -- Builtins (necessary?)
-  : 'Int'    { T.Int   (getSpan $1)       }
-  | 'Float'  { T.Float (getSpan $1)       }
-  | 'Char'   { T.Char  (getSpan $1)       }
-  | 'Skip'   { T.Skip  (getSpan $1)       }
-  | 'Close'  { T.End   (getSpan $1) T.Out }
-  | 'Wait'   { T.End   (getSpan $1) T.In  }
+  : 'Int'    { T.Int   (getSpan $1) R.Unrefined }
+  | 'Float'  { T.Float (getSpan $1)             }
+  | 'Char'   { T.Char  (getSpan $1)             }
+  | 'Skip'   { T.Skip  (getSpan $1)             }
+  | 'Close'  { T.End   (getSpan $1) T.Out       }
+  | 'Wait'   { T.End   (getSpan $1) T.In        }
   | 'Void' '@' Kind { T.Void (spanFromTo $1 $3) $3 }
   -- Unit, Tuples, Operators
   | '(' ')'        { T.Tuple (spanFromTo $1 $2) [] } -- { T.DName (spanFromTo $1 $2) (mkUnitId (spanFromTo $1 $2)) }
@@ -315,6 +321,9 @@ TypePrimary :: { T.ParsedType }
   | '[' Type ']' { T.AppDName (spanFromTo $1 $3) (mkNilId (spanFromTo $1 $3)) [$2] }
   -- Parenthesized type
   | '(' Type ')' { setSpan (spanFromTo $1 $3) $2 }
+  -- Refined types
+  | '{' TypeVar ':' RefinementType '}'                { T.Int (spanFromTo $1 $5) (R.Refined $2 $4 R.PredicateEmpty) }
+  | '{' TypeVar ':' RefinementType '|' Predicate '}'  { T.Int (spanFromTo $1 $7) (R.Refined $2 $4 $6) }
 
 Type :: { T.ParsedType }
   : Type Arrow Type %prec ARROW { T.AppArrow (fst $2) (snd $2) $1 $3 }
@@ -364,6 +373,28 @@ LabelTypeListComma :: { [(Identifier, T.ParsedType)] }
 LabelListComma :: { [Identifier] }
   : UPPER_ID ',' LabelListComma { mkIdTk $1 : $3 }
   | UPPER_ID                    { [mkIdTk $1] }
+
+RefinementType :: { R.RefinementType }
+  : 'Int'  { R.RefinedInt }
+
+Predicate :: { R.Predicate }
+  : PredicateExpression CMP PredicateExpression  { R.PredicateComparison $1 (mkCmpVar (getText $2) $2) $3 }
+  | Predicate '&&' Predicate                     { R.PredicateAnd $1 $3 }
+  | Predicate '||' Predicate                     { R.PredicateOr $1 $3 }
+  | Predicate '=>' Predicate                     { R.PredicateImplies $1 $3 }
+  | Predicate '<=>' Predicate                    { R.PredicateIff $1 $3 }
+  | 'not' Predicate                              { R.PredicateNot $2 }
+  | BOOL_LIT                                     { R.fromBoolLit $ getText $1 }
+  | '(' Predicate ')'                            { R.PredicateParens $2 }
+
+PredicateExpression :: { R.PredicateExpression }
+  : TypeVar                                                               { R.ExpressionVariable $1 }
+  | INT_LIT                                                               { R.ExpressionConstant (read $ getText $1) }
+  | PredicateExpression '+' PredicateExpression                           { R.ExpressionSum $1 $3 }
+  | PredicateExpression '-' PredicateExpression                           { R.ExpressionSubtraction $1 $3 }
+  | INT_LIT '*' PredicateExpression                                       { R.ExpressionProduct (read $ getText $1) $3 }
+  | 'if' Predicate 'then' PredicateExpression 'else' PredicateExpression  { R.ExpressionConditional $2 $4 $6 }
+  | '(' PredicateExpression ')'                                           { R.ExpressionParens $2 }
 
 KindedVarListWS :: { [(Variable, K.Kind)] }
   : {- empty -} { [] }
