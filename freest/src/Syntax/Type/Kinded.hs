@@ -16,7 +16,7 @@ module Syntax.Type.Kinded
   , pattern DName
   , pattern Var
   , pattern Abs
-  , pattern App 
+  , pattern App
   , pattern AppQuant
   , pattern AppForall
   , pattern AppExists
@@ -60,14 +60,15 @@ where
 import Syntax.Base
 import Syntax.Kind qualified as K
 import Syntax.Names
+import Syntax.Refinement qualified as R
 import Syntax.Type.Internal qualified as T
 import Data.List (intercalate)
 
 type KindedType = T.Type Kinded
 
-pattern Int :: Span -> KindedType
-pattern Int s <- T.Int s _
-  where Int s = T.Int s (K.ut s)
+pattern Int :: Span -> R.Refinement -> KindedType
+pattern Int s r <- T.Int s _ r
+  where Int s r = T.Int s (K.ut s) r
 
 pattern Float :: Span -> KindedType
 pattern Float s <- T.Float s _
@@ -85,7 +86,7 @@ pattern Arrow s m <- T.Arrow s _ m
 pattern Void :: Span -> K.Kind -> KindedType
 pattern Void s k <- T.Void s _ k
   where Void s k = T.Void s k k
-        
+
 pattern Skip :: Span -> KindedType
 pattern Skip s <- T.Skip s _
   where Skip s = T.Skip s (K.us s)
@@ -110,7 +111,7 @@ pattern Semi :: Span -> KindedType
 pattern Semi s <- T.Semi s _
   -- where Semi s = T.Semi s void
   --         where k = K.Arrow s (K.ls s) (K.Arrow s)
-                  
+
 pattern Dual :: Span -> KindedType
 pattern Dual s <- T.Dual s _
 --  where Dual s = T.Dual s void
@@ -171,7 +172,7 @@ pattern AppArrow :: Span -> K.Multiplicity -> KindedType -> KindedType -> Kinded
 pattern AppArrow s m t u <- T.AppArrow s _ _ m t u
   where AppArrow s m t u  = T.AppArrow s (K.Proper s m K.Top) arrow m t u
           -- kind of t -> u -> 1T?
-          where arrow = K.Arrow s (K.lt s) (K.Arrow s (K.lt s) (K.Proper s m K.Top)) 
+          where arrow = K.Arrow s (K.lt s) (K.Arrow s (K.lt s) (K.Proper s m K.Top))
 
 pattern AppMessage :: Span -> K.Multiplicity -> T.Polarity -> KindedType -> KindedType
 pattern AppMessage s m p t <- T.AppMessage s _ _ m p t
@@ -195,11 +196,11 @@ pattern UnChoice s p ls <- T.UnChoice s _ p ls
 pattern AppSemi :: Span -> KindedType -> KindedType -> KindedType
 pattern AppSemi s t u <- T.AppSemi s _ _ t u
   where AppSemi s t u  = T.AppSemi s app semi t u
-          where app = K.Proper s (if pk1 == K.Channel then m1 else K.join m1 m2) (K.meet pk1 pk2) 
+          where app = K.Proper s (if pk1 == K.Channel then m1 else K.join m1 m2) (K.meet pk1 pk2)
                 (K.Proper _ m1 pk1) = kindOf t
                 (K.Proper _ m2 pk2) = kindOf u
                 semi = K.Arrow s (K.ls s) (K.Arrow s (K.ls s) app)
-            
+
 pattern AppDual :: Span -> KindedType -> KindedType
 pattern AppDual s t <- T.AppDual s _ _ t
   where AppDual s t  = T.AppDual s k (K.Arrow s k k) t
@@ -213,29 +214,29 @@ pattern AppDName :: Span -> K.Kind -> Identifier -> [KindedType] -> KindedType
 pattern AppDName s k i ts <- T.AppDName s _ k i ts
   where AppDName s k i ts  = T.AppDName s k' k i ts
           where k' = foldr (\_ (K.Arrow _ _ k) -> k) k ts
-          
+
 pattern AppVar :: Span -> Variable -> K.Kind -> [KindedType] -> KindedType
 pattern AppVar s a k ts <- T.AppVar s _ k a ts
 --  where AppVar s a ts  = T.AppVar s void void a ts
 
 pattern Tuple :: Span -> [KindedType] -> KindedType
-pattern Tuple s ts <- T.Tuple s _ _ ts 
+pattern Tuple s ts <- T.Tuple s _ _ ts
   where Tuple s ts = T.Tuple s (K.Proper s m K.Top) app ts
           where m = foldr (\(kindOf -> K.Proper _ m _) -> K.join m ) K.Un ts
                 app = foldr (const $ K.Arrow s (K.lt s)) (K.Proper s m K.Top) ts
-  
+
 pattern List :: Span -> KindedType -> KindedType
 pattern List s t <- T.List s _ _ t
   where List s t  = AppDName s (K.Arrow s (K.lt s) (K.Proper s m K.Top)) (mkListId s) [t]
-          where (K.Proper _ m _) = kindOf t 
+          where (K.Proper _ m _) = kindOf t
 
 pattern Bool :: Span -> KindedType
 pattern Bool s <- T.Bool s _
   where Bool s = DName s (K.ut s) (mkBoolId s)
 
 kindOf :: KindedType -> K.Kind
-kindOf = \case 
-  T.Int _ k -> k
+kindOf = \case
+  T.Int _ k _ -> k
   T.Float _ k -> k
   T.Char _ k -> k
   T.Arrow _ k _ -> k

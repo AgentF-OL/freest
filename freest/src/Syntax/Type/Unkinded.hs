@@ -60,6 +60,7 @@ where
 import Syntax.Type.Internal qualified as T
 import Syntax.Base
 import Syntax.Kind qualified as K
+import Syntax.Refinement qualified as R
 import Data.Void
 
 type ParsedType = T.Type Parsed
@@ -67,8 +68,8 @@ type ScopedType = T.Type Scoped
 
 type Unkinded x = T.XType x ~ Void
 
-pattern Int :: Unkinded x => Span -> T.Type x
-pattern Int s <- T.Int s _
+pattern Int :: Unkinded x => Span -> R.Refinement -> T.Type x
+pattern Int s r <- T.Int s _ r
   where Int s = T.Int s void
 
 pattern Float :: Unkinded x => Span -> T.Type x

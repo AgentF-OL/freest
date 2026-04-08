@@ -54,6 +54,7 @@ where
 import Syntax.Base
 import Syntax.Kind qualified as K
 import Syntax.Names
+import Syntax.Refinement qualified as R
 import Utils ( internalError )
 
 import Data.Bifunctor
@@ -86,7 +87,7 @@ instance Dual Polarity where
 data Type x
   -- Constants
   --   Functional types
-  = Int Span (XType x)
+  = Int Span (XType x) R.Refinement
   | Float Span (XType x)
   | Char Span (XType x)
   | Arrow Span (XType x) K.Multiplicity
@@ -347,7 +348,7 @@ instance Congruence [Type x] where
 instance Located (Type x) where
   getSpan = \case
     -- Functional types
-    Int s _           -> s
+    Int s _ _         -> s
     Float s _         -> s
     Char s _          -> s
     Arrow s _ _      -> s
@@ -372,7 +373,7 @@ instance Located (Type x) where
 
   setSpan s = \case
     -- Functional types
-    Int _ x            -> Int s x
+    Int _ x r          -> Int s x r
     Float _ x          -> Float s x
     Char _ x          -> Char s x
     Arrow _ x m        -> Arrow s x m
