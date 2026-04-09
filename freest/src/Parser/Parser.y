@@ -158,7 +158,7 @@ import Data.List.NonEmpty qualified as NE
 %left     '+' '-' '+.' '-.'
 %left     '*' '/' '*.' '/.'
 %right    '^' '**'
-%left     NEG not
+%left     NEG 'not'
 %right    MSG
 
 %%
