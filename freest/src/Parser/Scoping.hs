@@ -27,6 +27,7 @@ import Syntax.Base
 import Syntax.Expression qualified as E
 import Syntax.Kind qualified as K
 import Syntax.Module qualified as M
+import Syntax.Refinement qualified as R
 import Validation.Substitution ( freeVars )
 import Validation.Base
 import Syntax.Type.Unkinded qualified as T
@@ -46,7 +47,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 
 -- = Scoping context
--- The scoping context keeps track of variable and indentifier names.
+-- The scoping context keeps track of variable and identifier names.
 
 -- == Internals
 -- These should not be manipulated directly. See interface below.
@@ -512,7 +513,7 @@ freshKVar (getSpan -> s) = do
 -- | Scope a type.
 scopeType :: ScopingCtx -> T.ParsedType -> Validation T.ScopedType
 scopeType ctx = \case
-  T.Int s -> pure $ T.Int s
+  T.Int s r -> scopeRefinedType emptyScopingCtx (T.Int s r) -- TODO: do not use an empty context for refinement
   T.Float s -> pure $ T.Float s
   T.Char s -> pure $ T.Char s
   T.Arrow s m -> T.Arrow s <$> scopeMultiplicity m
@@ -543,6 +544,61 @@ scopeType ctx = \case
     T.Abs s (zip as' ks') <$> scopeType (fromTVarList as' `union` ctx) t
   T.App s t ts ->
     T.App s <$> scopeType ctx t <*> mapM (scopeType ctx) ts
+
+-- | Scope a type that may be refined.
+scopeRefinedType :: ScopingCtx -> T.ParsedType -> Validation T.ScopedType
+scopeRefinedType ctx = \case
+  T.Int s r -> case r of
+    R.Unrefined -> pure $ T.Int s r
+    R.Refined v t p -> do
+      v' <- freshInternal v
+      let ctx' = insertTVar v' ctx
+      p' <- scopePredicate ctx' p
+      return $ T.Int s $ R.Refined v' t p'
+
+-- | Scope the predicate of a refined type.
+scopePredicate :: ScopingCtx -> R.Predicate -> Validation R.Predicate
+scopePredicate ctx = \case
+  R.PredicateComparison e1 cmp e2 -> R.PredicateComparison
+    <$> scopePredicateExpression ctx e1
+    <*> pure cmp
+    <*> scopePredicateExpression ctx e2
+  R.PredicateAnd p1 p2 -> R.PredicateAnd
+    <$> scopePredicate ctx p1
+    <*> scopePredicate ctx p2
+  R.PredicateOr p1 p2 -> R.PredicateOr
+    <$> scopePredicate ctx p1
+    <*> scopePredicate ctx p2
+  R.PredicateImplies p1 p2 -> R.PredicateImplies
+    <$> scopePredicate ctx p1
+    <*> scopePredicate ctx p2
+  R.PredicateIff p1 p2 -> R.PredicateIff
+    <$> scopePredicate ctx p1
+    <*> scopePredicate ctx p2
+  R.PredicateTrue -> pure R.PredicateTrue
+  R.PredicateFalse -> pure R.PredicateFalse
+  R.PredicateParens p -> R.PredicateParens <$> scopePredicate ctx p
+  R.PredicateEmpty -> pure R.PredicateEmpty
+
+-- | Scope the expression of a predicate.
+scopePredicateExpression :: ScopingCtx -> R.PredicateExpression -> Validation R.PredicateExpression
+scopePredicateExpression ctx = \case
+  R.ExpressionVariable x -> case lookupTVar x ctx of
+    Just v -> pure $ R.ExpressionVariable x{internal = internal v}
+    Nothing -> do insertError (TypeVarOutOfScope (getSpan x) x); pure $ R.ExpressionVariable x
+  R.ExpressionConstant c -> pure $ R.ExpressionConstant c
+  R.ExpressionSum e1 e2 -> R.ExpressionSum
+    <$> scopePredicateExpression ctx e1
+    <*> scopePredicateExpression ctx e2
+  R.ExpressionSubtraction e1 e2 -> R.ExpressionSubtraction
+    <$> scopePredicateExpression ctx e1
+    <*> scopePredicateExpression ctx e2
+  R.ExpressionProduct c e -> R.ExpressionProduct c <$> scopePredicateExpression ctx e
+  R.ExpressionConditional p e1 e2 -> R.ExpressionConditional
+    <$> scopePredicate ctx p
+    <*> scopePredicateExpression ctx e1
+    <*> scopePredicateExpression ctx e2
+  R.ExpressionParens e -> R.ExpressionParens <$> scopePredicateExpression ctx e
 
 -- | Scope a type, universally quantifying any free variables it might have
 -- with a fresh kind inference variable.
