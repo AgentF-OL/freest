@@ -67,7 +67,7 @@ emptyKindCtx = Map.empty
 synth :: M.ScopedModule -> KindCtx -> T.ScopedType -> Validation TK.KindedType
 synth modl ctx = \case
   -- Functional types
-  T.Int s    -> pure $ TK.Int s
+  T.Int s r    -> pure $ TK.Int s r
   T.Float s  -> pure $ TK.Float s
   T.Char s   -> pure $ TK.Char s
   T.Arrow s m -> pure $ TK.Arrow s m

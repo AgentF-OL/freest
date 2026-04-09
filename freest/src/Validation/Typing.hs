@@ -25,6 +25,7 @@ import Syntax.Kind qualified as K
 import Syntax.Module qualified as M
 import Syntax.Names
 import Syntax.Type.Kinded qualified as T
+import Syntax.Refinement qualified as R
 import UI.Error
 import Utils
 import Validation.Base
@@ -94,9 +95,9 @@ typeCtxDifference kctx tctx1 tctx2 = do
 synth :: M.KindedModule -> KindCtx -> TypeCtx -> E.KindedExp
       -> Validation (T.KindedType, TypeCtx)
 synth modl kctx tctx = \case
-  E.Int s _       -> pure (T.Int s   , tctx)
-  E.Float s _     -> pure (T.Float s , tctx)
-  E.Char s _      -> pure (T.Char s  , tctx)
+  E.Int s _       -> pure (T.Int s R.Unrefined  , tctx)
+  E.Float s _     -> pure (T.Float s            , tctx)
+  E.Char s _      -> pure (T.Char s             , tctx)
   -- Tuples, (e1 ... , en)
   E.Tuple s es -> do
     first (T.Tuple s) <$>
@@ -258,7 +259,7 @@ synthRHS modl kctx tctx fep = \case
 check :: M.KindedModule -> KindCtx -> TypeCtx -> E.KindedExp -> T.KindedType
       -> Validation TypeCtx
 check modl kctx tctx e t = case e of
-  E.Int s _   -> checkSubtypeOf modl (Left e) (T.Int s)   t >> pure tctx
+  E.Int s _   -> checkSubtypeOf modl (Left e) (T.Int s R.Unrefined)   t >> pure tctx
   E.Float s _ -> checkSubtypeOf modl (Left e) (T.Float s) t >> pure tctx
   E.Char s _  -> checkSubtypeOf modl (Left e) (T.Char s)  t >> pure tctx
   -- Tuples, (e1 ... , en)
@@ -595,7 +596,7 @@ checkPat :: M.KindedModule
 checkPat modl kctx p t = case p of
   -- 0
   E.IntPat    s _   -> do
-    checkSubtypeOf modl (Right p) (T.Int s) t
+    checkSubtypeOf modl (Right p) (T.Int s R.Unrefined) t
     pure (kctx, Map.empty)
   -- 0.0
   E.FloatPat  s _   -> do
