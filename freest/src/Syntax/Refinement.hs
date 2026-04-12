@@ -4,8 +4,6 @@ module Syntax.Refinement
   , Predicate(..)
   , PredicateExpression(..)
   , ExpressionConstant(..)
-  , fromFunctionName
-  , fromBoolLit
   )
 where
 
@@ -46,17 +44,6 @@ data PredicateExpression
 data ExpressionConstant
   = ConstantInt Int
   deriving (Eq, Ord)
-
-fromFunctionName :: String -> Predicate -> Predicate
-fromFunctionName s p = case s of
-  "not" -> PredicateNot p
-  _ -> error $ "Syntax.Refinement not a valid function name " ++ s
-
-fromBoolLit :: String -> Predicate
-fromBoolLit s = case s of
-  "True" -> PredicateTrue
-  "False" -> PredicateFalse
-  _ -> error $ "Syntax.Refinement not a valid bool literal " ++ s
 
 instance Show Refinement where
   show = \case

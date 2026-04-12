@@ -382,8 +382,8 @@ Predicate :: { R.Predicate }
   | Predicate '||' Predicate                     { R.PredicateOr $1 $3 }
   | Predicate '=>' Predicate                     { R.PredicateImplies $1 $3 }
   | Predicate '<=>' Predicate                    { R.PredicateIff $1 $3 }
-  | LOWER_ID NotPredicate %prec APP              { R.fromFunctionName (getText $1) $2 }
-  | UPPER_ID                                     { R.fromBoolLit $ getText $1 }
+  | LOWER_ID NotPredicate %prec APP              { % fromFunctionName $1 $2 }
+  | UPPER_ID                                     { % fromBoolLit $1 }
   | '(' Predicate ')'                            { R.PredicateParens $2 }
 
 PredicateExpression :: { R.PredicateExpression }
@@ -400,7 +400,7 @@ ExpressionConstant :: { R.ExpressionConstant }
   | '-' INT_LIT %prec NEG  { R.ConstantInt (read $ '-' : (getText $2)) }
 
 NotPredicate :: { R.Predicate }
-  : UPPER_ID           { R.fromBoolLit $ getText $1 }
+  : UPPER_ID           { % fromBoolLit $1 }
   | '(' Predicate ')'  { R.PredicateParens $2 }
 
 KindedVarListWS :: { [(Variable, K.Kind)] }
@@ -685,7 +685,22 @@ prefixTupleTypeConsError tk1 tk2 =
 
 prefixTupleExpConsError :: Token -> Token -> Lexer a
 prefixTupleExpConsError tk1 tk2 = 
-  throwError [UnsupportedError (spanFromTo tk1 tk2) "Prefix tuple constructors are not yet supported" "(Consider using a tuple expression)"] 
+  throwError [UnsupportedError (spanFromTo tk1 tk2) "Prefix tuple constructors are not yet supported" "(Consider using a tuple expression)"]
+
+fromFunctionName :: Token -> R.Predicate -> Lexer R.Predicate
+fromFunctionName tk p = do
+  let s = getText tk
+  case s of
+    "not" -> pure $ R.PredicateNot p
+    _ -> parseError (tk, ["'not'"])
+
+fromBoolLit :: Token -> Lexer R.Predicate
+fromBoolLit tk = do
+  let s = getText tk
+  case s of
+    "True" -> pure $ R.PredicateTrue
+    "False" -> pure $ R.PredicateFalse
+    _ -> parseError (tk, ["True", "False"])
 
 runParseModule :: FilePath -> String -> Either [Error] M.ParsedModule
 runParseModule = runLexer parseModule 
