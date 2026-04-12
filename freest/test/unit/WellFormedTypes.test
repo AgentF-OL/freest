@@ -1566,13 +1566,13 @@ where
   type A = {a: Int | a >= 0}
   type B = {b: Int | b < 0}
 
-case *&{Offer1: !A ; Wait, Offer2: !B ; Wait} : *C
+case *?&{Offer1: !A ; Wait, Offer2: !B ; Wait} : *C
 where
   type A, B : *T
   type A = {a: Int | a == 0}
   type B = {b: Int | b == 1}
 
-case *+{Choice1: ?A ; Close, Choice2: ?B ; Close} : *C
+case *!+{Choice1: ?A ; Close, Choice2: ?B ; Close} : *C
 where
   type A, B : *T
   type A = {a: Int | a == 0}
@@ -1596,14 +1596,14 @@ where
   type B = {b: Int | b < 0}
   type C = {c: Int | c == 0}
 
-case *&{Offer1: !A ; Wait, Offer2: !B ; Wait} ; !C : 1C
+case *?&{Offer1: !A ; Wait, Offer2: !B ; Wait} ; !C : 1C
 where
   type A, B, C : *T
   type A = {a: Int | a == 0}
   type B = {b: Int | b == 1}
   type C = {c: Int | c == 2}
 
-case *+{Choice1: ?A ; Close, Choice2: ?B ; Close} ; !C : 1C
+case *!+{Choice1: ?A ; Close, Choice2: ?B ; Close} ; !C : 1C
 where
   type A, B, C : *T
   type A = {a: Int | a == 0}

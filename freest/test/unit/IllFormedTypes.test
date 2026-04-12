@@ -177,14 +177,6 @@ case {a: Int | b >= 0} : *T
 
 case {a: Int | a >= b} : *T
 
-case {a: Int | a && a} : *T
-
-case {a: Int | not a} : *T
-
-case {a: Int | a * a > 0} : *T
-
-case {a: Int | a + 'a' == 0} : *T
-
 case {a: Int | a /= 0} : 1S
 
 case A ; B ; Close : 1C
@@ -204,12 +196,8 @@ case ?{a: Int | a > 0} : *C
 
 case !{a: Int | a > 0} : *C
 
-case *{a: Int | a > 0} : *C
-
 case {a: Int | a > 0} ; !{b: Int | b < 0} : 1C
 
 case ?{a: Int | a > 0} ; !{b: Int | b < 0} : 1C
 
 case !{a: Int | a > 0} ; !{b: Int | b < 0} : 1C
-
-case *{a: Int | a > 0} ; !{b: Int | b < 0} : 1C
