@@ -321,7 +321,7 @@ TypePrimary :: { T.ParsedType }
   -- Parenthesized type
   | '(' Type ')' { setSpan (spanFromTo $1 $3) $2 }
   -- Refined types
-  | '{' TypeVar ':' RefinementType '}'                { T.Int (spanFromTo $1 $5) (R.Refined $2 $4 R.PredicateEmpty) }
+  | '{' TypeVar ':' RefinementType '}'                { T.Int (spanFromTo $1 $5) (R.Refined $2 $4 R.PredicateTrue) }
   | '{' TypeVar ':' RefinementType '|' Predicate '}'  { T.Int (spanFromTo $1 $7) (R.Refined $2 $4 $6) }
 
 Type :: { T.ParsedType }

@@ -172,9 +172,7 @@ instance Unparse R.Refinement where
   fragment r = (maxRator, unparsed r)
     where
       unparsed = \case
-        R.Refined v t p -> "{" ++ unparse v ++ ": " ++ unparse t ++ case p of
-          R.PredicateEmpty -> "}"
-          _ -> " | " ++ unparse p ++ "}"
+        R.Refined v t p -> "{" ++ unparse v ++ ": " ++ unparse t ++ " | " ++ unparse p ++ "}"
         R.Unrefined -> ""
 
 instance Unparse R.RefinementType where
@@ -194,7 +192,6 @@ instance Unparse R.Predicate where
     R.PredicateTrue -> (maxRator, "True")
     R.PredicateFalse -> (maxRator, "False")
     R.PredicateParens p -> (maxRator, "(" ++ unparse p ++ ")")
-    R.PredicateEmpty -> (maxRator, "")
     where
       l p = bracket (fragment p) LeftAssoc
       r p = bracket (fragment p) RightAssoc

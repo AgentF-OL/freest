@@ -28,7 +28,6 @@ data Predicate
   | PredicateTrue
   | PredicateFalse
   | PredicateParens Predicate
-  | PredicateEmpty
   deriving (Eq, Ord)
 
 data PredicateExpression
@@ -47,9 +46,7 @@ data ExpressionConstant
 
 instance Show Refinement where
   show = \case
-    Refined v t p -> "{" ++ show v ++ ": " ++ show t ++ case p of
-      PredicateEmpty -> "}"
-      _ -> " | " ++ show p ++ "}"
+    Refined v t p -> "{" ++ show v ++ ": " ++ show t ++ " | " ++ show p ++ "}"
     Unrefined -> ""
 
 instance Show RefinementType where
@@ -67,7 +64,6 @@ instance Show Predicate where
     PredicateTrue -> "True"
     PredicateFalse -> "False"
     PredicateParens p -> "(" ++ show p ++ ")"
-    PredicateEmpty -> ""
 
 instance Show PredicateExpression where
   show = \case

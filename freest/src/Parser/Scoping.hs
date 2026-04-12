@@ -579,7 +579,6 @@ scopePredicate ctx = \case
   R.PredicateTrue -> pure R.PredicateTrue
   R.PredicateFalse -> pure R.PredicateFalse
   R.PredicateParens p -> R.PredicateParens <$> scopePredicate ctx p
-  R.PredicateEmpty -> pure R.PredicateEmpty
 
 -- | Scope the expression of a predicate.
 scopePredicateExpression :: ScopingCtx -> R.PredicateExpression -> Validation R.PredicateExpression
