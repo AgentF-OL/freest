@@ -387,7 +387,7 @@ Predicate :: { R.Predicate }
   | '(' Predicate ')'                            { R.PredicateParens $2 }
 
 PredicateExpression :: { R.PredicateExpression }
-  : TypeVar                                                               { R.ExpressionVariable $1 }
+  : ExpVar                                                                { R.ExpressionVariable $1 }
   | ExpressionConstant                                                    { R.ExpressionConstant $1 }
   | PredicateExpression '+' PredicateExpression                           { R.ExpressionSum $1 $3 }
   | PredicateExpression '-' PredicateExpression                           { R.ExpressionSubtraction $1 $3 }

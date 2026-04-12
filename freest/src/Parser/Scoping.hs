@@ -552,7 +552,7 @@ scopeRefinedType ctx = \case
     R.Unrefined -> pure $ T.Int s r
     R.Refined v t p -> do
       v' <- freshInternal v
-      let ctx' = insertTVar v' ctx
+      let ctx' = insertEVar v' ctx
       p' <- scopePredicate ctx' p
       return $ T.Int s $ R.Refined v' t p'
 
@@ -584,7 +584,7 @@ scopePredicate ctx = \case
 -- | Scope the expression of a predicate.
 scopePredicateExpression :: ScopingCtx -> R.PredicateExpression -> Validation R.PredicateExpression
 scopePredicateExpression ctx = \case
-  R.ExpressionVariable x -> case lookupTVar x ctx of
+  R.ExpressionVariable x -> case lookupEVar x ctx of
     Just v -> pure $ R.ExpressionVariable x{internal = internal v}
     Nothing -> do insertError (TypeVarOutOfScope (getSpan x) x); pure $ R.ExpressionVariable x
   R.ExpressionConstant c -> pure $ R.ExpressionConstant c
