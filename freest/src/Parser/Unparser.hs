@@ -202,7 +202,7 @@ instance Unparse R.Predicate where
 instance Unparse R.PredicateExpression where
   fragment = \case
     R.ExpressionVariable x -> (maxRator, unparse x)
-    R.ExpressionConstant c -> (maxRator, show c)
+    R.ExpressionConstant c -> (maxRator, unparse c)
     R.ExpressionSum e1 e2 -> (sumSubRator, l e1 sumSubRator ++ " + " ++ r e2 sumSubRator)
     R.ExpressionSubtraction e1 e2 -> (sumSubRator, l e1 sumSubRator ++ " - " ++ r e2 sumSubRator)
     R.ExpressionProduct c e -> (prodDivRator, unparse (R.ExpressionConstant c) ++ " * " ++ r e prodDivRator)
@@ -214,3 +214,7 @@ instance Unparse R.PredicateExpression where
     where
       l e = bracket (fragment e) LeftAssoc
       r e = bracket (fragment e) RightAssoc
+
+instance Unparse R.ExpressionConstant where
+  fragment = \case
+    R.ConstantInt c -> (maxRator, show c)

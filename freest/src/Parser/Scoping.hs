@@ -575,6 +575,7 @@ scopePredicate ctx = \case
   R.PredicateIff p1 p2 -> R.PredicateIff
     <$> scopePredicate ctx p1
     <*> scopePredicate ctx p2
+  R.PredicateNot p -> R.PredicateNot <$> scopePredicate ctx p
   R.PredicateTrue -> pure R.PredicateTrue
   R.PredicateFalse -> pure R.PredicateFalse
   R.PredicateParens p -> R.PredicateParens <$> scopePredicate ctx p

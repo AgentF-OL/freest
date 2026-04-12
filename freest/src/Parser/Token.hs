@@ -24,7 +24,6 @@ data Token
   | TkFloatLit Span String 
   | TkCharLit Span String 
   | TkStringLit Span String
-  | TkBoolLit Span String
   -- Keywords
   | TkModule Span | TkWhere Span | TkImport Span
   | TkData Span | TkType Span
@@ -51,7 +50,6 @@ data Token
   | TkCmp Span String
   | TkAmpAmp Span | TkPipePipe Span
   | TkImplies Span | TkIff Span
-  | TkNot Span
   -- Layout punctuation
   | TkVOpen Span | TkVPipe Span | TkVClose Span
   | TkEOF Span
@@ -81,7 +79,6 @@ getText = \case
   TkFloatLit _ t -> t
   TkCharLit _ t -> t
   TkStringLit _ t -> t
-  TkBoolLit _ t -> t
   TkCmp _ t -> t
   -- Keywords
   t -> error $ "Parser.Token.getText: no text for token `" ++ show t ++ "`"
@@ -100,7 +97,6 @@ instance Located Token where
     TkFloatLit s _ -> s
     TkCharLit s _ -> s
     TkStringLit s _ -> s
-    TkBoolLit s _ -> s
     -- Keywords
     TkModule s -> s
     TkWhere s -> s
@@ -161,7 +157,6 @@ instance Located Token where
     TkPipePipe s -> s
     TkImplies s -> s
     TkIff s -> s
-    TkNot s -> s
     -- Layout punctuation
     TkVOpen s -> s
     TkVPipe s -> s
@@ -200,7 +195,6 @@ instance Located Token where
     TkFloatLit _ f -> TkFloatLit s f
     TkCharLit _ c -> TkCharLit s c
     TkStringLit _ s' -> TkStringLit s s'
-    TkBoolLit _ b -> TkBoolLit s b
     -- Keywords
     TkModule _ -> TkModule s
     TkWhere _ -> TkWhere s
@@ -260,7 +254,6 @@ instance Located Token where
     TkPipePipe _ -> TkPipePipe s
     TkImplies _ -> TkImplies s
     TkIff _ -> TkIff s
-    TkNot _ -> TkNot s
     -- Layout punctuation
     TkVOpen _ -> TkVOpen s
     TkVPipe _ -> TkVPipe s

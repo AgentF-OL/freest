@@ -29,7 +29,6 @@ $digit = [ 0-9 ]
 @floatLit = @numspc @decimal \. @decimal @exponent? | @numspc @decimal @exponent
 @charLit = \'(\\n|[\\.]|.) \'
 @stringLit = \"(\\.|[^\"]|\n)*\"
-@boolLit = [ True False ]
 
 -- Identifiers
 $lower = [ a-z ]
@@ -97,7 +96,6 @@ $upper = [ A-Z ]
 <0> "|>"  { token TkPipeGT }
 <0> "=>"  { token TkImplies }
 <0> "<=>" { token TkIff }
-<0> "not" { token TkNot }
 <0> "+"   { token TkPlus }
 <0> "+."  { token TkPlusDot }
 <0> "++"  { token TkPlusPlus }
@@ -146,7 +144,6 @@ $upper = [ A-Z ]
 <0> @floatLit  { emit TkFloatLit }
 <0> @charLit   { emit TkCharLit }
 <0> @stringLit { emit TkStringLit }
-<0> @boolLit   { emit TkBoolLit }
 
 -- Identifiers
 <0> @wildcard         { emit TkWildcard }

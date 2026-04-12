@@ -94,7 +94,6 @@ import Data.List.NonEmpty qualified as NE
   '&&'    { TkAmpAmp _ }
   '=>'    { TkImplies _ }
   '<=>'   { TkIff _ }
-  'not'   { TkNot _ }
   '+'     { TkPlus _ }
   '++'    { TkPlusPlus _ }
   '+.'    { TkPlusDot _ }
@@ -133,7 +132,6 @@ import Data.List.NonEmpty qualified as NE
   FLOAT_LIT { TkFloatLit _ _ }
   CHAR_LIT { TkCharLit _ _ }
   STRING_LIT {TkStringLit _ _ }
-  BOOL_LIT { TkBoolLit _ _ }
 
   -- Identifiers
   UPPER_ID { TkUpperId _ _ }  
@@ -158,8 +156,9 @@ import Data.List.NonEmpty qualified as NE
 %left     '+' '-' '+.' '-.'
 %left     '*' '/' '*.' '/.'
 %right    '^' '**'
-%left     NEG 'not'
+%left     NEG
 %right    MSG
+%left     APP
 
 %%
 
@@ -383,18 +382,26 @@ Predicate :: { R.Predicate }
   | Predicate '||' Predicate                     { R.PredicateOr $1 $3 }
   | Predicate '=>' Predicate                     { R.PredicateImplies $1 $3 }
   | Predicate '<=>' Predicate                    { R.PredicateIff $1 $3 }
-  | 'not' Predicate                              { R.PredicateNot $2 }
-  | BOOL_LIT                                     { R.fromBoolLit $ getText $1 }
+  | LOWER_ID NotPredicate %prec APP              { R.fromFunctionName (getText $1) $2 }
+  | UPPER_ID                                     { R.fromBoolLit $ getText $1 }
   | '(' Predicate ')'                            { R.PredicateParens $2 }
 
 PredicateExpression :: { R.PredicateExpression }
   : TypeVar                                                               { R.ExpressionVariable $1 }
-  | INT_LIT                                                               { R.ExpressionConstant (read $ getText $1) }
+  | ExpressionConstant                                                    { R.ExpressionConstant $1 }
   | PredicateExpression '+' PredicateExpression                           { R.ExpressionSum $1 $3 }
   | PredicateExpression '-' PredicateExpression                           { R.ExpressionSubtraction $1 $3 }
-  | INT_LIT '*' PredicateExpression                                       { R.ExpressionProduct (read $ getText $1) $3 }
+  | ExpressionConstant '*' PredicateExpression                            { R.ExpressionProduct $1 $3 }
   | 'if' Predicate 'then' PredicateExpression 'else' PredicateExpression  { R.ExpressionConditional $2 $4 $6 }
   | '(' PredicateExpression ')'                                           { R.ExpressionParens $2 }
+
+ExpressionConstant :: { R.ExpressionConstant }
+  : INT_LIT                { R.ConstantInt (read $ getText $1) }
+  | '-' INT_LIT %prec NEG  { R.ConstantInt (read $ '-' : (getText $2)) }
+
+NotPredicate :: { R.Predicate }
+  : UPPER_ID           { R.fromBoolLit $ getText $1 }
+  | '(' Predicate ')'  { R.PredicateParens $2 }
 
 KindedVarListWS :: { [(Variable, K.Kind)] }
   : {- empty -} { [] }

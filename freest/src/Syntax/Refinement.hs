@@ -3,6 +3,8 @@ module Syntax.Refinement
   , RefinementType(..)
   , Predicate(..)
   , PredicateExpression(..)
+  , ExpressionConstant(..)
+  , fromFunctionName
   , fromBoolLit
   )
 where
@@ -33,19 +35,28 @@ data Predicate
 
 data PredicateExpression
   = ExpressionVariable Variable
-  | ExpressionConstant Int
+  | ExpressionConstant ExpressionConstant
   | ExpressionSum PredicateExpression PredicateExpression
   | ExpressionSubtraction PredicateExpression PredicateExpression
-  | ExpressionProduct Int PredicateExpression
+  | ExpressionProduct ExpressionConstant PredicateExpression
   | ExpressionConditional Predicate PredicateExpression PredicateExpression
   | ExpressionParens PredicateExpression
   deriving (Eq, Ord)
 
+data ExpressionConstant
+  = ConstantInt Int
+  deriving (Eq, Ord)
+
+fromFunctionName :: String -> Predicate -> Predicate
+fromFunctionName s p = case s of
+  "not" -> PredicateNot p
+  _ -> error $ "Syntax.Refinement not a valid function name " ++ s
+
 fromBoolLit :: String -> Predicate
-fromBoolLit = \case
+fromBoolLit s = case s of
   "True" -> PredicateTrue
   "False" -> PredicateFalse
-  _ -> error "Syntax.Refinement not a valid bool literal"
+  _ -> error $ "Syntax.Refinement not a valid bool literal " ++ s
 
 instance Show Refinement where
   show = \case
@@ -80,3 +91,7 @@ instance Show PredicateExpression where
     ExpressionProduct c e -> show c ++ " * " ++ show e
     ExpressionConditional p e1 e2 -> "if " ++ show p ++ " then " ++ show e1 ++ " else " ++ show e2
     ExpressionParens e -> "(" ++ show e ++ ")"
+
+instance Show ExpressionConstant where
+  show = \case
+    ConstantInt c -> show c

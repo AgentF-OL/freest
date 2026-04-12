@@ -255,7 +255,9 @@ instance Dual (Type x) where
 instance Show (Type x) where
   show = \case
    -- Functional types
-    Int{}     -> "Int"
+    Int _ _ p -> case p of
+      R.Unrefined -> "Int"
+      R.Refined{} -> show p
     Float{}   -> "Float"
     Char{}    -> "Char"
     Arrow _ _ m -> "("++show m++"->)"
