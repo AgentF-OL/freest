@@ -1,13 +1,14 @@
 module InvalidTypeInForall where
 
-type Boomerang, BiggerThanOne, BiggerThanTwo, BiggerThanSix : *T
+type Boomerang : *T -> *T -> *T -> *T
+type BiggerThanOne, BiggerThanTwo, BiggerThanSix : *T
 
-type Boomerang     = forall (a b c : *T) . (a, b, c)
-type BiggerThanOne = {x: Int | 2 * x - 2 > 0}
-type BiggerThanTwo = {y: Int | 3 * y - 6 > 0}
-type BiggerThanSix = {z: Int | 6 * z - 36 > 0}
+type Boomerang a b c = (a, b, c)
+type BiggerThanOne   = {x: Int | 2 * x - 2 > 0}
+type BiggerThanTwo   = {y: Int | 3 * y - 6 > 0}
+type BiggerThanSix   = {z: Int | 6 * z - 36 > 0}
 
-boomerang : forall (a b c : *T) . a -> b -> Boomerang @a @b @c
+boomerang : forall (a b c : *T) . a -> b -> Boomerang a b c
 boomerang @a @b @c x y = (x, y, x * y)
 
 main : (BiggerThanOne, BiggerThanTwo, BiggerThanSix)
