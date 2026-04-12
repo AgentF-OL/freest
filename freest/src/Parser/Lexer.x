@@ -117,6 +117,7 @@ $upper = [ A-Z ]
 <0> "<=." { emit TkCmp }
 <0> "=="  { emit TkCmp }
 <0> "/="  { emit TkCmp }
+<0> "<:"  { emit TkCmp }
 
 -- Types
 <0> "Int"   { token TkIntType }
