@@ -28,7 +28,6 @@ data Predicate
   | PredicateNot PredicateAppExp
   | PredicateTrue
   | PredicateFalse
-  | PredicateParens Predicate
   deriving (Eq, Ord)
 
 data PredicateExpression
@@ -38,7 +37,6 @@ data PredicateExpression
   | ExpressionSubtraction PredicateExpression PredicateExpression
   | ExpressionProduct ExpressionConstant PredicateExpression
   | ExpressionConditional Predicate PredicateExpression PredicateExpression
-  | ExpressionParens PredicateExpression
   deriving (Eq, Ord)
 
 data ExpressionConstant
@@ -64,25 +62,23 @@ instance Show RefinementType where
 
 instance Show Predicate where
   show = \case
-    PredicateComparison e1 cmp e2 -> show e1 ++ " " ++ show cmp ++ " " ++ show e2
-    PredicateAnd p1 p2 -> show p1 ++ " && " ++ show p2
-    PredicateOr p1 p2 -> show p1 ++ " || " ++ show p2
-    PredicateImplies p1 p2 -> show p1 ++ " => " ++ show p2
-    PredicateIff p1 p2 -> show p1 ++ " <=> " ++ show p2
-    PredicateNot p -> "not " ++ show p
+    PredicateComparison e1 cmp e2 -> "(" ++ show e1 ++ " " ++ show cmp ++ " " ++ show e2 ++ ")"
+    PredicateAnd p1 p2 -> "(" ++ show p1 ++ " && " ++ show p2 ++ ")"
+    PredicateOr p1 p2 -> "(" ++ show p1 ++ " || " ++ show p2 ++ ")"
+    PredicateImplies p1 p2 -> "(" ++ show p1 ++ " => " ++ show p2 ++ ")"
+    PredicateIff p1 p2 -> "(" ++ show p1 ++ " <=> " ++ show p2 ++ ")"
+    PredicateNot p -> "(not " ++ show p ++ ")"
     PredicateTrue -> "True"
     PredicateFalse -> "False"
-    PredicateParens p -> "(" ++ show p ++ ")"
 
 instance Show PredicateExpression where
   show = \case
     ExpressionVariable x -> show x
     ExpressionConstant c -> show c
-    ExpressionSum e1 e2 -> show e1 ++ " + " ++ show e2
-    ExpressionSubtraction e1 e2 -> show e1 ++ " - " ++ show e2
-    ExpressionProduct c e -> show c ++ " * " ++ show e
-    ExpressionConditional p e1 e2 -> "if " ++ show p ++ " then " ++ show e1 ++ " else " ++ show e2
-    ExpressionParens e -> "(" ++ show e ++ ")"
+    ExpressionSum e1 e2 -> "(" ++ show e1 ++ " + " ++ show e2 ++ ")"
+    ExpressionSubtraction e1 e2 -> "(" ++ show e1 ++ " - " ++ show e2 ++ ")"
+    ExpressionProduct c e -> "(" ++ show c ++ " * " ++ show e ++ ")"
+    ExpressionConditional p e1 e2 -> "(if " ++ show p ++ " then " ++ show e1 ++ " else " ++ show e2 ++ ")"
 
 instance Show ExpressionConstant where
   show = \case

@@ -191,7 +191,6 @@ instance Unparse R.Predicate where
     R.PredicateNot p -> (notRator, "not " ++ r p notRator)
     R.PredicateTrue -> (maxRator, "True")
     R.PredicateFalse -> (maxRator, "False")
-    R.PredicateParens p -> (maxRator, "(" ++ unparse p ++ ")")
     where
       l p = bracket (fragment p) LeftAssoc
       r p = bracket (fragment p) RightAssoc
@@ -207,7 +206,6 @@ instance Unparse R.PredicateExpression where
       "if "    ++ unparse p  ++
       " then " ++ unparse e1 ++
       " else " ++ unparse e2)
-    R.ExpressionParens e -> (maxRator, "(" ++ unparse e ++ ")")
     where
       l e = bracket (fragment e) LeftAssoc
       r e = bracket (fragment e) RightAssoc

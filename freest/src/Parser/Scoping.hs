@@ -578,7 +578,6 @@ scopePredicate ctx = \case
   R.PredicateNot p -> R.PredicateNot <$> scopePredicateAppExp ctx p
   R.PredicateTrue -> pure R.PredicateTrue
   R.PredicateFalse -> pure R.PredicateFalse
-  R.PredicateParens p -> R.PredicateParens <$> scopePredicate ctx p
 
 -- | Scope the expression of a predicate.
 scopePredicateExpression :: ScopingCtx -> R.PredicateExpression -> Validation R.PredicateExpression
@@ -598,7 +597,6 @@ scopePredicateExpression ctx = \case
     <$> scopePredicate ctx p
     <*> scopePredicateExpression ctx e1
     <*> scopePredicateExpression ctx e2
-  R.ExpressionParens e -> R.ExpressionParens <$> scopePredicateExpression ctx e
 
 -- | Scope the expression of an app in a predicate.
 scopePredicateAppExp :: ScopingCtx -> R.PredicateAppExp -> Validation R.PredicateAppExp

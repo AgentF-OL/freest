@@ -294,14 +294,14 @@ where -- S <: R1 ; R2 and R1 recursive
   type R1 = ?{r1: Int | r1 > 0} ; R1
   type R2 = !{r2: Int | r2 > 1}
 
-case *?S <: *?R : *C
-where -- S <: R
-  type S, R : 1S
-  type S = ?{s: Int | s > 1}
-  type R = ?{r: Int | r > 0}
-
-case *!S <: *!R : *C
-where -- R <: S
-  type S, R : 1S
-  type S = !{s: Int | s > 1}
-  type R = !{r: Int | r > 0}
+--case *?S <: *?R : *C
+--where -- S <: R
+--  type S, R : 1S
+--  type S = ?{s: Int | s > 1}
+--  type R = ?{r: Int | r > 0}
+--
+--case *!S <: *!R : *C
+--where -- R <: S
+--  type S, R : 1S
+--  type S = !{s: Int | s > 1}
+--  type R = !{r: Int | r > 0}

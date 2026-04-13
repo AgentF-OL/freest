@@ -384,7 +384,7 @@ Predicate :: { R.Predicate }
   | Predicate '<=>' Predicate                    { R.PredicateIff $1 $3 }
   | LOWER_ID PredicateAppExpPrimary %prec APP    { % fromFunctionName $1 $2 }
   | UPPER_ID                                     { % fromBoolLit $1 }
-  | '(' Predicate ')'                            { R.PredicateParens $2 }
+  | '(' Predicate ')'                            { $2 }
 
 PredicateExpression :: { R.PredicateExpression }
   : ExpVar                                                                { R.ExpressionVariable $1 }
@@ -393,7 +393,7 @@ PredicateExpression :: { R.PredicateExpression }
   | PredicateExpression '-' PredicateExpression                           { R.ExpressionSubtraction $1 $3 }
   | ExpressionConstant '*' PredicateExpression                            { R.ExpressionProduct $1 $3 }
   | 'if' Predicate 'then' PredicateExpression 'else' PredicateExpression  { R.ExpressionConditional $2 $4 $6 }
-  | '(' PredicateExpression ')'                                           { R.ExpressionParens $2 }
+  | '(' PredicateExpression ')'                                           { $2 }
 
 ExpressionConstant :: { R.ExpressionConstant }
   : INT_LIT                { R.ConstantInt (read $ getText $1) }
