@@ -382,7 +382,7 @@ Predicate :: { R.Predicate }
   | Predicate '||' Predicate                     { R.PredicateOr $1 $3 }
   | Predicate '=>' Predicate                     { R.PredicateImplies $1 $3 }
   | Predicate '<=>' Predicate                    { R.PredicateIff $1 $3 }
-  | LOWER_ID NotPredicate %prec APP              { % fromFunctionName $1 $2 }
+  | LOWER_ID PredicateAppExpPrimary %prec APP    { % fromFunctionName $1 $2 }
   | UPPER_ID                                     { % fromBoolLit $1 }
   | '(' Predicate ')'                            { R.PredicateParens $2 }
 
@@ -399,9 +399,28 @@ ExpressionConstant :: { R.ExpressionConstant }
   : INT_LIT                { R.ConstantInt (read $ getText $1) }
   | '-' INT_LIT %prec NEG  { R.ConstantInt (read $ '-' : (getText $2)) }
 
-NotPredicate :: { R.Predicate }
-  : UPPER_ID           { % fromBoolLit $1 }
-  | '(' Predicate ')'  { R.PredicateParens $2 }
+PredicateAppExpPrimary :: { R.PredicateAppExp }
+  : INT_LIT                  { R.Int (read $ getText $1) }
+  | ExpVar                   { R.Var $1 }
+  | UPPER_ID                 { R.DCons (mkIdTk $1) }
+  | '(' PredicateAppExp ')'  { $2 }
+
+PredicateAppExp :: { R.PredicateAppExp }
+  : 'if' PredicateAppExp 'then' PredicateAppExp 'else' PredicateAppExp  { R.If $2 $4 $6 }
+  | PredicateAppExp '<=>' PredicateAppExp                               { predicateBinOp $1 (R.Var $ mkIffVar $2) $3 }
+  | PredicateAppExp '=>' PredicateAppExp                                { predicateBinOp $1 (R.Var $ mkImpliesVar $2) $3 }
+  | PredicateAppExp '||' PredicateAppExp                                { predicateBinOp $1 (R.Var $ mkOrVar $2) $3 }
+  | PredicateAppExp '&&' PredicateAppExp                                { predicateBinOp $1 (R.Var $ mkAndVar $2) $3 }
+  | PredicateAppExp CMP PredicateAppExp                                 { predicateBinOp $1 (R.Var $ mkCmpVar (getText $2) $2) $3 }
+  | PredicateAppExp '+' PredicateAppExp                                 { predicateBinOp $1 (R.Var $ mkPlusVar $2) $3 }
+  | PredicateAppExp '-' PredicateAppExp                                 { predicateBinOp $1 (R.Var $ mkMinusVar $2) $3 }
+  | PredicateAppExp '*' PredicateAppExp                                 { predicateBinOp $1 (R.Var $ mkTimesVar $2) $3 }
+  | '-' PredicateAppExpApp  %prec NEG                                   { predicateUnOp (R.Var $ mkNegateVar $1) $2 }
+  | PredicateAppExpApp                                                  { $1 }
+
+PredicateAppExpApp :: { R.PredicateAppExp }
+  : PredicateAppExpApp PredicateAppExpPrimary  { addPredicateArgExp $2 $1 }
+  | PredicateAppExpPrimary                     { $1 }
 
 KindedVarListWS :: { [(Variable, K.Kind)] }
   : {- empty -} { [] }
@@ -687,7 +706,7 @@ prefixTupleExpConsError :: Token -> Token -> Lexer a
 prefixTupleExpConsError tk1 tk2 = 
   throwError [UnsupportedError (spanFromTo tk1 tk2) "Prefix tuple constructors are not yet supported" "(Consider using a tuple expression)"]
 
-fromFunctionName :: Token -> R.Predicate -> Lexer R.Predicate
+fromFunctionName :: Token -> R.PredicateAppExp -> Lexer R.Predicate
 fromFunctionName tk p = do
   let s = getText tk
   case s of

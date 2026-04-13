@@ -4,10 +4,11 @@ module Syntax.Refinement
   , Predicate(..)
   , PredicateExpression(..)
   , ExpressionConstant(..)
+  , PredicateAppExp(..)
   )
 where
 
-import Syntax.Base (Variable)
+import Syntax.Base (Variable, Identifier, Level)
 
 data Refinement
   = Refined Variable RefinementType Predicate
@@ -24,7 +25,7 @@ data Predicate
   | PredicateOr Predicate Predicate
   | PredicateImplies Predicate Predicate
   | PredicateIff Predicate Predicate
-  | PredicateNot Predicate
+  | PredicateNot PredicateAppExp
   | PredicateTrue
   | PredicateFalse
   | PredicateParens Predicate
@@ -42,6 +43,14 @@ data PredicateExpression
 
 data ExpressionConstant
   = ConstantInt Int
+  deriving (Eq, Ord)
+
+data PredicateAppExp
+  = Int Int
+  | Var Variable
+  | DCons Identifier
+  | App PredicateAppExp [PredicateAppExp]
+  | If PredicateAppExp PredicateAppExp PredicateAppExp
   deriving (Eq, Ord)
 
 instance Show Refinement where
@@ -78,3 +87,11 @@ instance Show PredicateExpression where
 instance Show ExpressionConstant where
   show = \case
     ConstantInt c -> show c
+
+instance Show PredicateAppExp where
+  show = \case
+    Int i        -> show i
+    Var x        -> show x
+    DCons i      -> show i
+    App f as     -> foldl (\s a -> "("++s++" "++show a++")") (show f) as
+    If e1 e2 e3  -> "(if "++show e1++" then "++show e2++" else "++show e3++")"

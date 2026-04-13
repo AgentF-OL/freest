@@ -215,3 +215,14 @@ instance Unparse R.PredicateExpression where
 instance Unparse R.ExpressionConstant where
   fragment = \case
     R.ConstantInt c -> (maxRator, show c)
+
+instance Unparse R.PredicateAppExp where
+  fragment = \case
+    R.Int i -> (maxRator, show i)
+    R.Var x -> (maxRator, unparse x)
+    R.DCons i -> (maxRator, show i)
+    R.App t ts -> (appRator, l ++ " " ++ r)
+      where
+        l = bracket (fragment (if length ts == 1 then t else R.App t (init ts))) LeftAssoc appRator
+        r = bracket (fragment (last ts)) RightAssoc appRator
+    R.If e1 e2 e3  -> (maxRator, "if "++show e1++" then "++show e2++" else "++show e3)

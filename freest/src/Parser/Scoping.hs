@@ -575,7 +575,7 @@ scopePredicate ctx = \case
   R.PredicateIff p1 p2 -> R.PredicateIff
     <$> scopePredicate ctx p1
     <*> scopePredicate ctx p2
-  R.PredicateNot p -> R.PredicateNot <$> scopePredicate ctx p
+  R.PredicateNot p -> R.PredicateNot <$> scopePredicateAppExp ctx p
   R.PredicateTrue -> pure R.PredicateTrue
   R.PredicateFalse -> pure R.PredicateFalse
   R.PredicateParens p -> R.PredicateParens <$> scopePredicate ctx p
@@ -599,6 +599,31 @@ scopePredicateExpression ctx = \case
     <*> scopePredicateExpression ctx e1
     <*> scopePredicateExpression ctx e2
   R.ExpressionParens e -> R.ExpressionParens <$> scopePredicateExpression ctx e
+
+-- | Scope the expression of an app in a predicate.
+scopePredicateAppExp :: ScopingCtx -> R.PredicateAppExp -> Validation R.PredicateAppExp
+scopePredicateAppExp ctx = \case
+  R.Int x -> pure $ R.Int x
+  R.Var v -> case lookupEVar v ctx of
+    Just v' -> pure $ R.Var v{internal = internal v'}
+    Nothing ->
+     -- TODO: Remove this temporary solution once the context is allowed to have more than just the refinement variable
+     -- and simply follow the else branch
+     if external v `elem`
+       ["(||)", "(&&)", "(=>)", "(<=>)", "(+)", "(-)", "(*)", "(>)", "(<)", "(>=)", "(<=)", "(==)", "(/=)", "(<:)", "negate"]
+     then pure $ R.Var v
+     else do insertError (TypeVarOutOfScope (getSpan v) v); pure $ R.Var v
+  R.DCons i ->
+    if memberDId i ctx
+    then pure $ R.DCons i
+    else do insertError (ConsOutOfScope (getSpan i) i); pure $ R.DCons i
+  R.App a as -> R.App
+    <$> scopePredicateAppExp ctx a
+    <*> forM as (scopePredicateAppExp ctx)
+  R.If e1 e2 e3 -> R.If
+    <$> scopePredicateAppExp ctx e1
+    <*> scopePredicateAppExp ctx e2
+    <*> scopePredicateAppExp ctx e3
 
 -- | Scope a type, universally quantifying any free variables it might have
 -- with a fresh kind inference variable.
