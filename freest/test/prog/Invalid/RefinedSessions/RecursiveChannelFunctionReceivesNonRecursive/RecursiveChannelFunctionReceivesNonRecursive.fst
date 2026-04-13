@@ -1,4 +1,4 @@
-module RefinedPingPong where
+module RecursiveChannelFunctionReceivesNonRecursive where
 
 type PingPongRecursiveServer, PingPongRecursiveClient, PingPongServer, PingPongClient : 1C
 type Ping, Pong : *T
@@ -30,8 +30,8 @@ runRecursiveClient c = c |> send 5 |> receiveAndClose @Pong
 main : ()
 main =
   let (c1, s1) = channel @PingPongRecursiveClient in
-  let (c2, s2) = channel @PingPongRecursiveClient in
+  let (c2, s2) = channel @PingPongClient in
   fork (\(_ : ()) 1-> runNonRecursiveClient c1);
-  fork (\(_ : ()) 1-> runRecursiveClient c2);
+  fork (\(_ : ()) 1-> runRecursiveClient c2); -- X - cannot use non-recursive channel on a recursive channel
   fork (\(_ : ()) 1-> runNonRecursiveServer s1);
   runRecursiveServer s2
