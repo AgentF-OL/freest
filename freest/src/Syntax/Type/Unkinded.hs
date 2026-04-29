@@ -68,9 +68,9 @@ type ScopedType = T.Type Scoped
 
 type Unkinded x = T.XType x ~ Void
 
-pattern Int :: Unkinded x => Span -> R.Refinement -> T.Type x
-pattern Int s r <- T.Int s _ r
-  where Int s = T.Int s void
+pattern Int :: Unkinded x => Span -> Variable -> R.Pred -> T.Type x
+pattern Int s v p <- T.Int s _ v p
+  where Int s v p = T.Int s void v p
 
 pattern Float :: Unkinded x => Span -> T.Type x
 pattern Float s <- T.Float s _

@@ -87,7 +87,7 @@ instance Dual Polarity where
 data Type x
   -- Constants
   --   Functional types
-  = Int Span (XType x) R.Refinement
+  = Int Span (XType x) Variable R.Pred
   | Float Span (XType x)
   | Char Span (XType x)
   | Arrow Span (XType x) K.Multiplicity
@@ -255,9 +255,9 @@ instance Dual (Type x) where
 instance Show (Type x) where
   show = \case
    -- Functional types
-    Int _ _ p -> case p of
-      R.Unrefined -> "Int"
-      R.Refined{} -> show p
+    Int _ _ v p -> case p of
+      R.PTrue -> "Int"
+      _ -> "{" ++ show v ++ ": Int | " ++ show p ++ "}"
     Float{}   -> "Float"
     Char{}    -> "Char"
     Arrow _ _ m -> "("++show m++"->)"
@@ -350,7 +350,7 @@ instance Congruence [Type x] where
 instance Located (Type x) where
   getSpan = \case
     -- Functional types
-    Int s _ _         -> s
+    Int s _ _ _       -> s
     Float s _         -> s
     Char s _          -> s
     Arrow s _ _      -> s
@@ -375,7 +375,7 @@ instance Located (Type x) where
 
   setSpan s = \case
     -- Functional types
-    Int _ x r          -> Int s x r
+    Int _ x v r        -> Int s x v r
     Float _ x          -> Float s x
     Char _ x          -> Char s x
     Arrow _ x m        -> Arrow s x m

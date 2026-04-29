@@ -19,6 +19,7 @@ module Syntax.Base
   , Variable (..)
   , mkDefaultVar
   , mkFreshVar
+  , mkGhostVar
   , firstInternal
   , defaultInternal
   -- Level
@@ -170,6 +171,11 @@ mkFreshVar s fvs = unusedVar [firstInternal..] (mkDefaultVar "_γ" s) fvs
     -- variables.
     unusedVar :: [Int] -> Variable -> Set.Set Variable -> Variable
     unusedVar stock a as  = a{internal = head (stock \\ map internal (Set.toList as))}
+
+-- | Construct a variable given a Located value to extract the span from.
+-- The internal representation is always 1 bellow the default.
+mkGhostVar :: Located a => a -> Variable
+mkGhostVar l = Variable{varSpan = getSpan l, external = "x", internal = defaultInternal - 1}
     
 -- 4 _ Levels
 

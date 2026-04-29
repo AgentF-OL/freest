@@ -66,9 +66,9 @@ import Data.List (intercalate)
 
 type KindedType = T.Type Kinded
 
-pattern Int :: Span -> R.Refinement -> KindedType
-pattern Int s r <- T.Int s _ r
-  where Int s r = T.Int s (K.ut s) r
+pattern Int :: Span -> Variable -> R.Pred -> KindedType
+pattern Int s v p <- T.Int s _ v p
+  where Int s v p = T.Int s (K.ut s) v p
 
 pattern Float :: Span -> KindedType
 pattern Float s <- T.Float s _
@@ -236,7 +236,7 @@ pattern Bool s <- T.Bool s _
 
 kindOf :: KindedType -> K.Kind
 kindOf = \case
-  T.Int _ k _ -> k
+  T.Int _ k _ _ -> k
   T.Float _ k -> k
   T.Char _ k -> k
   T.Arrow _ k _ -> k

@@ -513,7 +513,7 @@ freshKVar (getSpan -> s) = do
 -- | Scope a type.
 scopeType :: ScopingCtx -> T.ParsedType -> Validation T.ScopedType
 scopeType ctx = \case
-  T.Int s r -> scopeRefinedType emptyScopingCtx (T.Int s r) -- TODO: do not use an empty context for refinement
+  T.Int s v p -> scopeRefinedType emptyScopingCtx (T.Int s v p) -- TODO: do not use an empty context for refinement
   T.Float s -> pure $ T.Float s
   T.Char s -> pure $ T.Char s
   T.Arrow s m -> T.Arrow s <$> scopeMultiplicity m
@@ -548,13 +548,13 @@ scopeType ctx = \case
 -- | Scope a type that may be refined.
 scopeRefinedType :: ScopingCtx -> T.ParsedType -> Validation T.ScopedType
 scopeRefinedType ctx = \case
-  T.Int s r -> case r of
-    R.Unrefined -> pure $ T.Int s r
-    R.Refined v t p -> do
+  T.Int s v p -> case internal v of
+    -2 -> pure $ T.Int s v p
+    _ -> do
       v' <- freshInternal v
       let ctx' = insertEVar v' ctx
       p' <- scopePred ctx' p
-      return $ T.Int s $ R.Refined v' t p'
+      return $ T.Int s v' p'
 
 -- | Scope the predicate of a refined type.
 scopePred :: ScopingCtx -> R.Pred -> Validation R.Pred

@@ -285,7 +285,7 @@ ProperKind :: { K.Kind }
 
 TypePrimary :: { T.ParsedType }
   -- Builtins (necessary?)
-  : 'Int'    { T.Int   (getSpan $1) R.Unrefined }
+  : 'Int'    { T.Int   (getSpan $1) Variable{internal = -2} R.PTrue }
   | 'Float'  { T.Float (getSpan $1)             }
   | 'Char'   { T.Char  (getSpan $1)             }
   | 'Skip'   { T.Skip  (getSpan $1)             }
@@ -321,8 +321,8 @@ TypePrimary :: { T.ParsedType }
   -- Parenthesized type
   | '(' Type ')' { setSpan (spanFromTo $1 $3) $2 }
   -- Refined types
-  | '{' ExpVar ':' RefinementType '}'                { T.Int (spanFromTo $1 $5) (R.Refined $2 $4 R.PTrue) }
-  | '{' ExpVar ':' RefinementType '|' Pred '}'       { T.Int (spanFromTo $1 $7) (R.Refined $2 $4 $6) }
+  | '{' ExpVar ':' 'Int' '}'                { T.Int (spanFromTo $1 $5) $2 R.PTrue }
+  | '{' ExpVar ':' 'Int' '|' Pred '}'       { T.Int (spanFromTo $1 $7) $2 $6 }
 
 Type :: { T.ParsedType }
   : Type Arrow Type %prec ARROW { T.AppArrow (fst $2) (snd $2) $1 $3 }
@@ -372,9 +372,6 @@ LabelTypeListComma :: { [(Identifier, T.ParsedType)] }
 LabelListComma :: { [Identifier] }
   : UPPER_ID ',' LabelListComma { mkIdTk $1 : $3 }
   | UPPER_ID                    { [mkIdTk $1] }
-
-RefinementType :: { R.Type }
-  : 'Int'  { R.Int }
 
 Pred :: { R.Pred }
   : PExp CMP PExp    { R.Cmp $1 (mkCmpVar (getText $2) $2) $3 }

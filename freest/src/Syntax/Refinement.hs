@@ -1,24 +1,12 @@
 module Syntax.Refinement
-  ( Refinement(..)
-  , Type(..)
-  , Pred(..)
+  ( Pred(..)
   , Exp(..)
   )
 where
 
 import Syntax.Base (Variable, Identifier, Level)
 
--- TODO: remove unrefined - place variable and predicate directly in the Int
 -- TODO: change this module to Syntax.Type
-data Refinement
-  = Refined Variable Type Pred
-  | Unrefined
-  deriving (Eq, Ord)
-
-data Type
-  = Int
-  deriving (Eq, Ord)
-
 data Pred
   = Cmp Exp Variable Exp
   | And Pred Pred
@@ -38,15 +26,6 @@ data Exp
   | Prod Int Exp
   | Cond Pred Exp Exp
   deriving (Eq, Ord)
-
-instance Show Refinement where
-  show = \case
-    Refined v t p -> "{" ++ show v ++ ": " ++ show t ++ " | " ++ show p ++ "}"
-    Unrefined -> ""
-
-instance Show Type where
-  show = \case
-    Int -> "Int"
 
 instance Show Pred where
   show = \case

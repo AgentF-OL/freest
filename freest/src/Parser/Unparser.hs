@@ -94,7 +94,7 @@ instance Unparse Variable where
 
 instance Unparse (T.Type x) where
   fragment = \case
-    T.Int _ _ r -> (maxRator, refinement "Int" r)
+    T.Int _ _ v p -> (maxRator, refinement "Int" v p)
     T.Float _ _ -> (maxRator, "Float")
     T.Char _ _ -> (maxRator, "Char")
     T.Arrow _ _ m -> (maxRator, "(" ++ arrow m ++ ")")
@@ -167,22 +167,9 @@ instance Unparse (T.Type x) where
       view = \case
         T.In  -> "&"
         T.Out -> "+"
-      refinement typ = \case
-        R.Unrefined -> typ
-        R.Refined v t p -> unparse $ R.Refined v t p
-
-instance Unparse R.Refinement where
-  fragment r = (maxRator, unparsed r)
-    where
-      unparsed = \case
-        R.Refined v t p -> "{" ++ unparse v ++ ": " ++ unparse t ++ " | " ++ unparse p ++ "}"
-        R.Unrefined -> ""
-
-instance Unparse R.Type where
-  fragment t = (maxRator, unparsed t)
-    where
-      unparsed = \case
-        R.Int -> "Int"
+      refinement typ v p = case p of
+         R.PTrue -> typ
+         _ -> "{" ++ unparse v ++ ": " ++ typ ++ " | " ++ unparse p ++ "}"
 
 instance Unparse R.Pred where
   fragment = \case
