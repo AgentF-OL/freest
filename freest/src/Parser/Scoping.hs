@@ -27,7 +27,7 @@ import Syntax.Base
 import Syntax.Expression qualified as E
 import Syntax.Kind qualified as K
 import Syntax.Module qualified as M
-import Syntax.Refinement qualified as R
+import Syntax.Type.Refinement qualified as R
 import Validation.Substitution ( freeVars )
 import Validation.Base
 import Syntax.Type.Unkinded qualified as T

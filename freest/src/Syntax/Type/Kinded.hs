@@ -60,7 +60,7 @@ where
 import Syntax.Base
 import Syntax.Kind qualified as K
 import Syntax.Names
-import Syntax.Refinement qualified as R
+import Syntax.Type.Refinement qualified as R
 import Syntax.Type.Internal qualified as T
 import Data.List (intercalate)
 

@@ -15,7 +15,7 @@ import Syntax.Base
 import Syntax.Names
 import Syntax.Expression qualified as E
 import Syntax.Kind qualified as K
-import Syntax.Refinement qualified as R
+import Syntax.Type.Refinement qualified as R
 import Syntax.Type.Unkinded qualified as T
 
 import Data.List.NonEmpty qualified as NE

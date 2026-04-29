@@ -1,4 +1,4 @@
-module Syntax.Refinement
+module Syntax.Type.Refinement
   ( Pred(..)
   , Exp(..)
   )
@@ -6,7 +6,6 @@ where
 
 import Syntax.Base (Variable, Identifier, Level)
 
--- TODO: change this module to Syntax.Type
 data Pred
   = Cmp Exp Variable Exp
   | And Pred Pred

@@ -54,7 +54,7 @@ where
 import Syntax.Base
 import Syntax.Kind qualified as K
 import Syntax.Names
-import Syntax.Refinement qualified as R
+import Syntax.Type.Refinement qualified as R
 import Utils ( internalError )
 
 import Data.Bifunctor

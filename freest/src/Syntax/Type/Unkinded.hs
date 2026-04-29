@@ -60,7 +60,7 @@ where
 import Syntax.Type.Internal qualified as T
 import Syntax.Base
 import Syntax.Kind qualified as K
-import Syntax.Refinement qualified as R
+import Syntax.Type.Refinement qualified as R
 import Data.Void
 
 type ParsedType = T.Type Parsed

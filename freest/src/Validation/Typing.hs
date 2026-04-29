@@ -25,7 +25,7 @@ import Syntax.Kind qualified as K
 import Syntax.Module qualified as M
 import Syntax.Names
 import Syntax.Type.Kinded qualified as T
-import Syntax.Refinement qualified as R
+import Syntax.Type.Refinement qualified as R
 import UI.Error
 import Utils
 import Validation.Base
