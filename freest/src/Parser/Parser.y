@@ -143,12 +143,13 @@ import Data.List.NonEmpty qualified as NE
 %right    ':'
 %right    'in' 'else' 'case'
 %right    '.'
-%left     '<=>'
-%right    '=>' '->' '1->' '*->' ARROW
+%right    '->' '1->' '*->' ARROW
 %right    ';' SEMI
 %left     '@'
 %right    '$'
 %left     '|>'
+%left     '<=>'
+%right    '=>'
 %left     '||'
 %left     '&&'
 %nonassoc CMP
@@ -158,7 +159,6 @@ import Data.List.NonEmpty qualified as NE
 %right    '^' '**'
 %left     NEG
 %right    MSG
-%left     APP
 
 %%
 
@@ -321,8 +321,8 @@ TypePrimary :: { T.ParsedType }
   -- Parenthesized type
   | '(' Type ')' { setSpan (spanFromTo $1 $3) $2 }
   -- Refined types
-  | '{' TypeVar ':' RefinementType '}'                { T.Int (spanFromTo $1 $5) (R.Refined $2 $4 R.PredicateTrue) }
-  | '{' TypeVar ':' RefinementType '|' Predicate '}'  { T.Int (spanFromTo $1 $7) (R.Refined $2 $4 $6) }
+  | '{' ExpVar ':' RefinementType '}'                { T.Int (spanFromTo $1 $5) (R.Refined $2 $4 R.PTrue) }
+  | '{' ExpVar ':' RefinementType '|' Pred '}'       { T.Int (spanFromTo $1 $7) (R.Refined $2 $4 $6) }
 
 Type :: { T.ParsedType }
   : Type Arrow Type %prec ARROW { T.AppArrow (fst $2) (snd $2) $1 $3 }
@@ -373,54 +373,37 @@ LabelListComma :: { [Identifier] }
   : UPPER_ID ',' LabelListComma { mkIdTk $1 : $3 }
   | UPPER_ID                    { [mkIdTk $1] }
 
-RefinementType :: { R.RefinementType }
-  : 'Int'  { R.RefinedInt }
+RefinementType :: { R.Type }
+  : 'Int'  { R.Int }
 
-Predicate :: { R.Predicate }
-  : PredicateExpression CMP PredicateExpression  { R.PredicateComparison $1 (mkCmpVar (getText $2) $2) $3 }
-  | Predicate '&&' Predicate                     { R.PredicateAnd $1 $3 }
-  | Predicate '||' Predicate                     { R.PredicateOr $1 $3 }
-  | Predicate '=>' Predicate                     { R.PredicateImplies $1 $3 }
-  | Predicate '<=>' Predicate                    { R.PredicateIff $1 $3 }
-  | LOWER_ID PredicateAppExpPrimary %prec APP    { % fromFunctionName $1 $2 }
-  | UPPER_ID                                     { % fromBoolLit $1 }
-  | '(' Predicate ')'                            { $2 }
+Pred :: { R.Pred }
+  : PExp CMP PExp    { R.Cmp $1 (mkCmpVar (getText $2) $2) $3 }
+  | Pred '&&' Pred   { R.And $1 $3 }
+  | Pred '||' Pred   { R.Or $1 $3 }
+  | Pred '=>' Pred   { R.Implies $1 $3 }
+  | Pred '<=>' Pred  { R.Iff $1 $3 }
+  | PApp             { $1 }
 
-PredicateExpression :: { R.PredicateExpression }
-  : ExpVar                                                                { R.ExpressionVariable $1 }
-  | ExpressionConstant                                                    { R.ExpressionConstant $1 }
-  | PredicateExpression '+' PredicateExpression                           { R.ExpressionSum $1 $3 }
-  | PredicateExpression '-' PredicateExpression                           { R.ExpressionSubtraction $1 $3 }
-  | ExpressionConstant '*' PredicateExpression                            { R.ExpressionProduct $1 $3 }
-  | 'if' Predicate 'then' PredicateExpression 'else' PredicateExpression  { R.ExpressionConditional $2 $4 $6 }
-  | '(' PredicateExpression ')'                                           { $2 }
+PApp :: { R.Pred }
+  : LOWER_ID PPrimary  { % predicateNot $1 $2 }
+  | PPrimary           { $1 }
 
-ExpressionConstant :: { R.ExpressionConstant }
-  : INT_LIT                { R.ConstantInt (read $ getText $1) }
-  | '-' INT_LIT %prec NEG  { R.ConstantInt (read $ '-' : (getText $2)) }
+PPrimary :: { R.Pred }
+  : UPPER_ID      { % fromBoolLit $1 }
+  | '(' Pred ')'  { $2 }
 
-PredicateAppExpPrimary :: { R.PredicateAppExp }
-  : INT_LIT                  { R.Int (read $ getText $1) }
-  | ExpVar                   { R.Var $1 }
-  | UPPER_ID                 { R.DCons (mkIdTk $1) }
-  | '(' PredicateAppExp ')'  { $2 }
+PExp :: { R.Exp }
+  : ExpVar                             { R.Var $1 }
+  | TypeOrNegType(INT_LIT)             { R.Const $1 }
+  | PExp '+' PExp                      { R.Sum $1 $3 }
+  | PExp '-' PExp                      { R.Sub $1 $3 }
+  | TypeOrNegType(INT_LIT) '*' PExp    { R.Prod $1 $3 }
+  | 'if' Pred 'then' PExp 'else' PExp  { R.Cond $2 $4 $6 }
+  | '(' PExp ')'                       { $2 }
 
-PredicateAppExp :: { R.PredicateAppExp }
-  : 'if' PredicateAppExp 'then' PredicateAppExp 'else' PredicateAppExp  { R.If $2 $4 $6 }
-  | PredicateAppExp '<=>' PredicateAppExp                               { predicateBinOp $1 (R.Var $ mkIffVar $2) $3 }
-  | PredicateAppExp '=>' PredicateAppExp                                { predicateBinOp $1 (R.Var $ mkImpliesVar $2) $3 }
-  | PredicateAppExp '||' PredicateAppExp                                { predicateBinOp $1 (R.Var $ mkOrVar $2) $3 }
-  | PredicateAppExp '&&' PredicateAppExp                                { predicateBinOp $1 (R.Var $ mkAndVar $2) $3 }
-  | PredicateAppExp CMP PredicateAppExp                                 { predicateBinOp $1 (R.Var $ mkCmpVar (getText $2) $2) $3 }
-  | PredicateAppExp '+' PredicateAppExp                                 { predicateBinOp $1 (R.Var $ mkPlusVar $2) $3 }
-  | PredicateAppExp '-' PredicateAppExp                                 { predicateBinOp $1 (R.Var $ mkMinusVar $2) $3 }
-  | PredicateAppExp '*' PredicateAppExp                                 { predicateBinOp $1 (R.Var $ mkTimesVar $2) $3 }
-  | '-' PredicateAppExpApp  %prec NEG                                   { predicateUnOp (R.Var $ mkNegateVar $1) $2 }
-  | PredicateAppExpApp                                                  { $1 }
-
-PredicateAppExpApp :: { R.PredicateAppExp }
-  : PredicateAppExpApp PredicateAppExpPrimary  { addPredicateArgExp $2 $1 }
-  | PredicateAppExpPrimary                     { $1 }
+TypeOrNegType(t)
+  : t                { read $ getText $1 }
+  | '-' t %prec NEG  { read $ '-' : (getText $2) }
 
 KindedVarListWS :: { [(Variable, K.Kind)] }
   : {- empty -} { [] }
@@ -706,19 +689,19 @@ prefixTupleExpConsError :: Token -> Token -> Lexer a
 prefixTupleExpConsError tk1 tk2 = 
   throwError [UnsupportedError (spanFromTo tk1 tk2) "Prefix tuple constructors are not yet supported" "(Consider using a tuple expression)"]
 
-fromFunctionName :: Token -> R.PredicateAppExp -> Lexer R.Predicate
-fromFunctionName tk p = do
+predicateNot :: Token -> R.Pred -> Lexer R.Pred
+predicateNot tk p = do
   let s = getText tk
   case s of
-    "not" -> pure $ R.PredicateNot p
+    "not" -> pure $ R.Not p
     _ -> parseError (tk, ["'not'"])
 
-fromBoolLit :: Token -> Lexer R.Predicate
+fromBoolLit :: Token -> Lexer R.Pred
 fromBoolLit tk = do
   let s = getText tk
   case s of
-    "True" -> pure $ R.PredicateTrue
-    "False" -> pure $ R.PredicateFalse
+    "True" -> pure $ R.PTrue
+    "False" -> pure $ R.PFalse
     _ -> parseError (tk, ["True", "False"])
 
 runParseModule :: FilePath -> String -> Either [Error] M.ParsedModule

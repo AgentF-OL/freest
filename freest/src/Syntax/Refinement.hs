@@ -1,54 +1,42 @@
 module Syntax.Refinement
   ( Refinement(..)
-  , RefinementType(..)
-  , Predicate(..)
-  , PredicateExpression(..)
-  , ExpressionConstant(..)
-  , PredicateAppExp(..)
+  , Type(..)
+  , Pred(..)
+  , Exp(..)
   )
 where
 
 import Syntax.Base (Variable, Identifier, Level)
 
+-- TODO: remove unrefined - place variable and predicate directly in the Int
+-- TODO: change this module to Syntax.Type
 data Refinement
-  = Refined Variable RefinementType Predicate
+  = Refined Variable Type Pred
   | Unrefined
   deriving (Eq, Ord)
 
-data RefinementType
-  = RefinedInt
+data Type
+  = Int
   deriving (Eq, Ord)
 
-data Predicate
-  = PredicateComparison PredicateExpression Variable PredicateExpression
-  | PredicateAnd Predicate Predicate
-  | PredicateOr Predicate Predicate
-  | PredicateImplies Predicate Predicate
-  | PredicateIff Predicate Predicate
-  | PredicateNot PredicateAppExp
-  | PredicateTrue
-  | PredicateFalse
+data Pred
+  = Cmp Exp Variable Exp
+  | And Pred Pred
+  | Or Pred Pred
+  | Implies Pred Pred
+  | Iff Pred Pred
+  | Not Pred
+  | PTrue
+  | PFalse
   deriving (Eq, Ord)
 
-data PredicateExpression
-  = ExpressionVariable Variable
-  | ExpressionConstant ExpressionConstant
-  | ExpressionSum PredicateExpression PredicateExpression
-  | ExpressionSubtraction PredicateExpression PredicateExpression
-  | ExpressionProduct ExpressionConstant PredicateExpression
-  | ExpressionConditional Predicate PredicateExpression PredicateExpression
-  deriving (Eq, Ord)
-
-data ExpressionConstant
-  = ConstantInt Int
-  deriving (Eq, Ord)
-
-data PredicateAppExp
-  = Int Int
-  | Var Variable
-  | DCons Identifier
-  | App PredicateAppExp [PredicateAppExp]
-  | If PredicateAppExp PredicateAppExp PredicateAppExp
+data Exp
+  = Var Variable
+  | Const Int
+  | Sum Exp Exp
+  | Sub Exp Exp
+  | Prod Int Exp
+  | Cond Pred Exp Exp
   deriving (Eq, Ord)
 
 instance Show Refinement where
@@ -56,38 +44,26 @@ instance Show Refinement where
     Refined v t p -> "{" ++ show v ++ ": " ++ show t ++ " | " ++ show p ++ "}"
     Unrefined -> ""
 
-instance Show RefinementType where
+instance Show Type where
   show = \case
-    RefinedInt -> "Int"
+    Int -> "Int"
 
-instance Show Predicate where
+instance Show Pred where
   show = \case
-    PredicateComparison e1 cmp e2 -> "(" ++ show e1 ++ " " ++ show cmp ++ " " ++ show e2 ++ ")"
-    PredicateAnd p1 p2 -> "(" ++ show p1 ++ " && " ++ show p2 ++ ")"
-    PredicateOr p1 p2 -> "(" ++ show p1 ++ " || " ++ show p2 ++ ")"
-    PredicateImplies p1 p2 -> "(" ++ show p1 ++ " => " ++ show p2 ++ ")"
-    PredicateIff p1 p2 -> "(" ++ show p1 ++ " <=> " ++ show p2 ++ ")"
-    PredicateNot p -> "(not " ++ show p ++ ")"
-    PredicateTrue -> "True"
-    PredicateFalse -> "False"
+    Cmp e1 cmp e2 -> "(" ++ show e1 ++ " " ++ show cmp ++ " " ++ show e2 ++ ")"
+    And p1 p2 -> "(" ++ show p1 ++ " && " ++ show p2 ++ ")"
+    Or p1 p2 -> "(" ++ show p1 ++ " || " ++ show p2 ++ ")"
+    Implies p1 p2 -> "(" ++ show p1 ++ " => " ++ show p2 ++ ")"
+    Iff p1 p2 -> "(" ++ show p1 ++ " <=> " ++ show p2 ++ ")"
+    Not p -> "(not " ++ show p ++ ")"
+    PTrue -> "True"
+    PFalse -> "False"
 
-instance Show PredicateExpression where
+instance Show Exp where
   show = \case
-    ExpressionVariable x -> show x
-    ExpressionConstant c -> show c
-    ExpressionSum e1 e2 -> "(" ++ show e1 ++ " + " ++ show e2 ++ ")"
-    ExpressionSubtraction e1 e2 -> "(" ++ show e1 ++ " - " ++ show e2 ++ ")"
-    ExpressionProduct c e -> "(" ++ show c ++ " * " ++ show e ++ ")"
-    ExpressionConditional p e1 e2 -> "(if " ++ show p ++ " then " ++ show e1 ++ " else " ++ show e2 ++ ")"
-
-instance Show ExpressionConstant where
-  show = \case
-    ConstantInt c -> show c
-
-instance Show PredicateAppExp where
-  show = \case
-    Int i        -> show i
-    Var x        -> show x
-    DCons i      -> show i
-    App f as     -> foldl (\s a -> "("++s++" "++show a++")") (show f) as
-    If e1 e2 e3  -> "(if "++show e1++" then "++show e2++" else "++show e3++")"
+    Var x -> show x
+    Const c -> show c
+    Sum e1 e2 -> "(" ++ show e1 ++ " + " ++ show e2 ++ ")"
+    Sub e1 e2 -> "(" ++ show e1 ++ " - " ++ show e2 ++ ")"
+    Prod c e -> "(" ++ show c ++ " * " ++ show e ++ ")"
+    Cond p e1 e2 -> "(if " ++ show p ++ " then " ++ show e1 ++ " else " ++ show e2 ++ ")"

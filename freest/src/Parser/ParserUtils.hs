@@ -39,21 +39,11 @@ mkIdTk t = mkId (getText t) t
 infixApp :: T.ParsedType -> T.ParsedType -> T.ParsedType -> T.ParsedType
 infixApp t1 op t2 = T.App (spanFromTo t1 t2) op [t1, t2]
 
-predicateBinOp :: R.PredicateAppExp -> R.PredicateAppExp -> R.PredicateAppExp -> R.PredicateAppExp
-predicateBinOp l op r = R.App op [l, r]
-
 binOp :: E.ParsedExp -> E.ParsedExp -> E.ParsedExp -> E.ParsedExp
 binOp l op r = E.App (spanFromTo l r) op [ExpLevel l, ExpLevel r]
 
-predicateUnOp :: R.PredicateAppExp -> R.PredicateAppExp -> R.PredicateAppExp
-predicateUnOp op x = R.App op [x]
-
 unOp :: E.ParsedExp -> E.ParsedExp -> E.ParsedExp
 unOp op x = E.App (spanFromTo op x) op [ExpLevel x]
-
-addPredicateArgExp :: R.PredicateAppExp -> R.PredicateAppExp -> R.PredicateAppExp
-addPredicateArgExp a (R.App e as) = R.App e (as ++ [a])
-addPredicateArgExp a e            = R.App e [a]
 
 addArgExp :: Level E.ParsedExp T.ParsedType -> E.ParsedExp -> E.ParsedExp
 addArgExp a (E.App s e as) = E.App (spanFromTo s a) e (as ++ [a])

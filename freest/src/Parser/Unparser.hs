@@ -13,9 +13,10 @@ import Data.List qualified as List
 data Precedence =
     PMin
   | PDot
-  | PIff
   | PArrow
   | PSemi
+  | PIff
+  | PImplies
   | PPipePipe
   | PAmpAmp
   | PCmp
@@ -36,6 +37,7 @@ type Fragment = (Rator, String)
 minRator
   , dotRator
   , iffRator
+  , impliesRator
   , arrowRator
   , semiRator
   , pipePipeRator
@@ -51,6 +53,7 @@ minRator
 minRator      = (minBound , NonAssoc)
 dotRator      = (PDot     , RightAssoc)
 iffRator      = (PIff     , LeftAssoc)
+impliesRator  = (PImplies , RightAssoc)
 arrowRator    = (PArrow   , RightAssoc)
 semiRator     = (PSemi    , RightAssoc)
 pipePipeRator = (PPipePipe, LeftAssoc)
@@ -175,52 +178,37 @@ instance Unparse R.Refinement where
         R.Refined v t p -> "{" ++ unparse v ++ ": " ++ unparse t ++ " | " ++ unparse p ++ "}"
         R.Unrefined -> ""
 
-instance Unparse R.RefinementType where
+instance Unparse R.Type where
   fragment t = (maxRator, unparsed t)
     where
       unparsed = \case
-        R.RefinedInt -> "Int"
+        R.Int -> "Int"
 
-instance Unparse R.Predicate where
+instance Unparse R.Pred where
   fragment = \case
-    R.PredicateComparison p1 cmp p2 -> (cmpRator, l p1 cmpRator ++ " " ++ unparse cmp ++ " " ++ r p2 cmpRator)
-    R.PredicateAnd p1 p2 -> (ampAmpRator, l p1 ampAmpRator ++ " && " ++ r p2 ampAmpRator)
-    R.PredicateOr p1 p2 -> (pipePipeRator, l p1 pipePipeRator ++ " || " ++ r p2 pipePipeRator)
-    R.PredicateImplies p1 p2 -> (arrowRator, l p1 arrowRator ++ " => " ++ r p2 arrowRator)
-    R.PredicateIff p1 p2 -> (iffRator, l p1 iffRator ++ " <=> " ++ r p2 iffRator)
-    R.PredicateNot p -> (notRator, "not " ++ r p notRator)
-    R.PredicateTrue -> (maxRator, "True")
-    R.PredicateFalse -> (maxRator, "False")
+    R.Cmp p1 cmp p2 -> (cmpRator, l p1 cmpRator ++ " " ++ unparse cmp ++ " " ++ r p2 cmpRator)
+    R.And p1 p2 -> (ampAmpRator, l p1 ampAmpRator ++ " && " ++ r p2 ampAmpRator)
+    R.Or p1 p2 -> (pipePipeRator, l p1 pipePipeRator ++ " || " ++ r p2 pipePipeRator)
+    R.Implies p1 p2 -> (impliesRator, l p1 impliesRator ++ " => " ++ r p2 impliesRator)
+    R.Iff p1 p2 -> (iffRator, l p1 iffRator ++ " <=> " ++ r p2 iffRator)
+    R.Not p -> (notRator, "not " ++ r p notRator)
+    R.PTrue -> (maxRator, "True")
+    R.PFalse -> (maxRator, "False")
     where
       l p = bracket (fragment p) LeftAssoc
       r p = bracket (fragment p) RightAssoc
 
-instance Unparse R.PredicateExpression where
+instance Unparse R.Exp where
   fragment = \case
-    R.ExpressionVariable x -> (maxRator, unparse x)
-    R.ExpressionConstant c -> (maxRator, unparse c)
-    R.ExpressionSum e1 e2 -> (sumSubRator, l e1 sumSubRator ++ " + " ++ r e2 sumSubRator)
-    R.ExpressionSubtraction e1 e2 -> (sumSubRator, l e1 sumSubRator ++ " - " ++ r e2 sumSubRator)
-    R.ExpressionProduct c e -> (prodDivRator, unparse (R.ExpressionConstant c) ++ " * " ++ r e prodDivRator)
-    R.ExpressionConditional p e1 e2 -> (maxRator,
+    R.Var x -> (maxRator, unparse x)
+    R.Const c -> (maxRator, show c)
+    R.Sum e1 e2 -> (sumSubRator, l e1 sumSubRator ++ " + " ++ r e2 sumSubRator)
+    R.Sub e1 e2 -> (sumSubRator, l e1 sumSubRator ++ " - " ++ r e2 sumSubRator)
+    R.Prod c e -> (prodDivRator, unparse (R.Const c) ++ " * " ++ r e prodDivRator)
+    R.Cond p e1 e2 -> (maxRator,
       "if "    ++ unparse p  ++
       " then " ++ unparse e1 ++
       " else " ++ unparse e2)
     where
       l e = bracket (fragment e) LeftAssoc
       r e = bracket (fragment e) RightAssoc
-
-instance Unparse R.ExpressionConstant where
-  fragment = \case
-    R.ConstantInt c -> (maxRator, show c)
-
-instance Unparse R.PredicateAppExp where
-  fragment = \case
-    R.Int i -> (maxRator, show i)
-    R.Var x -> (maxRator, unparse x)
-    R.DCons i -> (maxRator, show i)
-    R.App t ts -> (appRator, l ++ " " ++ r)
-      where
-        l = bracket (fragment (if length ts == 1 then t else R.App t (init ts))) LeftAssoc appRator
-        r = bracket (fragment (last ts)) RightAssoc appRator
-    R.If e1 e2 e3  -> (maxRator, "if "++show e1++" then "++show e2++" else "++show e3)

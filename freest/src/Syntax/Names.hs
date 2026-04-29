@@ -11,7 +11,7 @@ module Syntax.Names where
 
 import Syntax.Base
 
-; mkIffVar, mkImpliesVar, mkOrVar, mkAndVar,
+; mkOrVar, mkAndVar,
   mkPlusVar, mkMinusVar, mkTimesVar, mkDivVar, mkPowerVar, mkNegateVar,
   mkPlusDotVar, mkMinusDotVar, mkTimesDotVar, mkDivDotVar, mkTimesTimesVar, mkNegateFVar,
   mkDollarVar, mkRTriangleVar, mkSemiVar, mkDotVar,
@@ -19,8 +19,6 @@ import Syntax.Base
   mkSend, mkReceive, mkFork,
   mkUndefinedVar
   :: Located a => a -> Variable
-mkIffVar = mkDefaultVar "(<=>)"
-mkImpliesVar = mkDefaultVar "(=>)"
 mkOrVar = mkDefaultVar "(||)"
 mkAndVar = mkDefaultVar "(&&)"
 mkPlusVar = mkDefaultVar "(+)"

@@ -553,75 +553,50 @@ scopeRefinedType ctx = \case
     R.Refined v t p -> do
       v' <- freshInternal v
       let ctx' = insertEVar v' ctx
-      p' <- scopePredicate ctx' p
+      p' <- scopePred ctx' p
       return $ T.Int s $ R.Refined v' t p'
 
 -- | Scope the predicate of a refined type.
-scopePredicate :: ScopingCtx -> R.Predicate -> Validation R.Predicate
-scopePredicate ctx = \case
-  R.PredicateComparison e1 cmp e2 -> R.PredicateComparison
-    <$> scopePredicateExpression ctx e1
+scopePred :: ScopingCtx -> R.Pred -> Validation R.Pred
+scopePred ctx = \case
+  R.Cmp e1 cmp e2 -> R.Cmp
+    <$> scopePExp ctx e1
     <*> pure cmp
-    <*> scopePredicateExpression ctx e2
-  R.PredicateAnd p1 p2 -> R.PredicateAnd
-    <$> scopePredicate ctx p1
-    <*> scopePredicate ctx p2
-  R.PredicateOr p1 p2 -> R.PredicateOr
-    <$> scopePredicate ctx p1
-    <*> scopePredicate ctx p2
-  R.PredicateImplies p1 p2 -> R.PredicateImplies
-    <$> scopePredicate ctx p1
-    <*> scopePredicate ctx p2
-  R.PredicateIff p1 p2 -> R.PredicateIff
-    <$> scopePredicate ctx p1
-    <*> scopePredicate ctx p2
-  R.PredicateNot p -> R.PredicateNot <$> scopePredicateAppExp ctx p
-  R.PredicateTrue -> pure R.PredicateTrue
-  R.PredicateFalse -> pure R.PredicateFalse
+    <*> scopePExp ctx e2
+  R.And p1 p2 -> R.And
+    <$> scopePred ctx p1
+    <*> scopePred ctx p2
+  R.Or p1 p2 -> R.Or
+    <$> scopePred ctx p1
+    <*> scopePred ctx p2
+  R.Implies p1 p2 -> R.Implies
+    <$> scopePred ctx p1
+    <*> scopePred ctx p2
+  R.Iff p1 p2 -> R.Iff
+    <$> scopePred ctx p1
+    <*> scopePred ctx p2
+  R.Not p -> R.Not <$> scopePred ctx p
+  R.PTrue -> pure R.PTrue
+  R.PFalse -> pure R.PFalse
 
 -- | Scope the expression of a predicate.
-scopePredicateExpression :: ScopingCtx -> R.PredicateExpression -> Validation R.PredicateExpression
-scopePredicateExpression ctx = \case
-  R.ExpressionVariable x -> case lookupEVar x ctx of
-    Just v -> pure $ R.ExpressionVariable x{internal = internal v}
-    Nothing -> do insertError (TypeVarOutOfScope (getSpan x) x); pure $ R.ExpressionVariable x
-  R.ExpressionConstant c -> pure $ R.ExpressionConstant c
-  R.ExpressionSum e1 e2 -> R.ExpressionSum
-    <$> scopePredicateExpression ctx e1
-    <*> scopePredicateExpression ctx e2
-  R.ExpressionSubtraction e1 e2 -> R.ExpressionSubtraction
-    <$> scopePredicateExpression ctx e1
-    <*> scopePredicateExpression ctx e2
-  R.ExpressionProduct c e -> R.ExpressionProduct c <$> scopePredicateExpression ctx e
-  R.ExpressionConditional p e1 e2 -> R.ExpressionConditional
-    <$> scopePredicate ctx p
-    <*> scopePredicateExpression ctx e1
-    <*> scopePredicateExpression ctx e2
-
--- | Scope the expression of an app in a predicate.
-scopePredicateAppExp :: ScopingCtx -> R.PredicateAppExp -> Validation R.PredicateAppExp
-scopePredicateAppExp ctx = \case
-  R.Int x -> pure $ R.Int x
-  R.Var v -> case lookupEVar v ctx of
-    Just v' -> pure $ R.Var v{internal = internal v'}
-    Nothing ->
-     -- TODO: Remove this temporary solution once the context is allowed to have more than just the refinement variable
-     -- and simply follow the else branch
-     if external v `elem`
-       ["(||)", "(&&)", "(=>)", "(<=>)", "(+)", "(-)", "(*)", "(>)", "(<)", "(>=)", "(<=)", "(==)", "(/=)", "(<:)", "negate"]
-     then pure $ R.Var v
-     else do insertError (TypeVarOutOfScope (getSpan v) v); pure $ R.Var v
-  R.DCons i ->
-    if memberDId i ctx
-    then pure $ R.DCons i
-    else do insertError (ConsOutOfScope (getSpan i) i); pure $ R.DCons i
-  R.App a as -> R.App
-    <$> scopePredicateAppExp ctx a
-    <*> forM as (scopePredicateAppExp ctx)
-  R.If e1 e2 e3 -> R.If
-    <$> scopePredicateAppExp ctx e1
-    <*> scopePredicateAppExp ctx e2
-    <*> scopePredicateAppExp ctx e3
+scopePExp :: ScopingCtx -> R.Exp -> Validation R.Exp
+scopePExp ctx = \case
+  R.Var x -> case lookupEVar x ctx of
+    Just v -> pure $ R.Var x{internal = internal v}
+    Nothing -> do insertError (TypeVarOutOfScope (getSpan x) x); pure $ R.Var x
+  R.Const c -> pure $ R.Const c
+  R.Sum e1 e2 -> R.Sum
+    <$> scopePExp ctx e1
+    <*> scopePExp ctx e2
+  R.Sub e1 e2 -> R.Sub
+    <$> scopePExp ctx e1
+    <*> scopePExp ctx e2
+  R.Prod c e -> R.Prod c <$> scopePExp ctx e
+  R.Cond p e1 e2 -> R.Cond
+    <$> scopePred ctx p
+    <*> scopePExp ctx e1
+    <*> scopePExp ctx e2
 
 -- | Scope a type, universally quantifying any free variables it might have
 -- with a fresh kind inference variable.
