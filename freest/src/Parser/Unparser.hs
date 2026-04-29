@@ -199,3 +199,12 @@ instance Unparse R.Exp where
     where
       l e = bracket (fragment e) LeftAssoc
       r e = bracket (fragment e) RightAssoc
+
+instance Unparse R.Cmp where
+  fragment = \case
+    R.L -> (maxRator, "<")
+    R.LE -> (maxRator, "<=")
+    R.E -> (maxRator, "==")
+    R.GE -> (maxRator, ">=")
+    R.G -> (maxRator, ">")
+    R.Diff -> (maxRator, "/=")

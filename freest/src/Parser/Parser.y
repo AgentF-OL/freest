@@ -374,7 +374,7 @@ LabelListComma :: { [Identifier] }
   | UPPER_ID                    { [mkIdTk $1] }
 
 Pred :: { R.Pred }
-  : PExp CMP PExp    { R.Cmp $1 (mkCmpVar (getText $2) $2) $3 }
+  : PExp CMP PExp    { % fromCMPPred $1 $2 $3 }
   | Pred '&&' Pred   { R.And $1 $3 }
   | Pred '||' Pred   { R.Or $1 $3 }
   | Pred '=>' Pred   { R.Implies $1 $3 }
@@ -700,6 +700,16 @@ fromBoolLit tk = do
     "True" -> pure $ R.PTrue
     "False" -> pure $ R.PFalse
     _ -> parseError (tk, ["True", "False"])
+
+fromCMPPred :: R.Exp -> Token -> R.Exp -> Lexer R.Pred
+fromCMPPred e1 tk e2 = case (getText tk) of
+  "<" -> pure $ R.Cmp e1 R.L e2
+  "<=" -> pure $ R.Cmp e1 R.LE e2
+  "==" -> pure $ R.Cmp e1 R.E e2
+  ">=" -> pure $ R.Cmp e1 R.GE e2
+  ">" -> pure $ R.Cmp e1 R.G e2
+  "/=" -> pure $ R.Cmp e1 R.Diff e2
+  _ -> parseError (tk, ["<", "<=", "==", ">=", ">", "/="])
 
 runParseModule :: FilePath -> String -> Either [Error] M.ParsedModule
 runParseModule = runLexer parseModule 

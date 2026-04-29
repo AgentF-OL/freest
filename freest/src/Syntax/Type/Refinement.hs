@@ -1,13 +1,14 @@
 module Syntax.Type.Refinement
   ( Pred(..)
   , Exp(..)
+  , Cmp(..)
   )
 where
 
 import Syntax.Base (Variable, Identifier, Level)
 
 data Pred
-  = Cmp Exp Variable Exp
+  = Cmp Exp Cmp Exp
   | And Pred Pred
   | Or Pred Pred
   | Implies Pred Pred
@@ -24,6 +25,15 @@ data Exp
   | Sub Exp Exp
   | Prod Int Exp
   | Cond Pred Exp Exp
+  deriving (Eq, Ord)
+
+data Cmp
+  = L
+  | LE
+  | E
+  | GE
+  | G
+  | Diff
   deriving (Eq, Ord)
 
 instance Show Pred where
@@ -45,3 +55,12 @@ instance Show Exp where
     Sub e1 e2 -> "(" ++ show e1 ++ " - " ++ show e2 ++ ")"
     Prod c e -> "(" ++ show c ++ " * " ++ show e ++ ")"
     Cond p e1 e2 -> "(if " ++ show p ++ " then " ++ show e1 ++ " else " ++ show e2 ++ ")"
+
+instance Show Cmp where
+  show = \case
+    L -> "<"
+    LE -> "<="
+    E -> "=="
+    GE -> ">="
+    G -> ">"
+    Diff -> "/="
