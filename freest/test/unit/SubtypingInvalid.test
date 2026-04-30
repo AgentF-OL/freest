@@ -76,7 +76,25 @@ where
 
 -- from Subtyping context-free session types by Silva et al., (2026)
 -- https://www.sciencedirect.com/science/article/pii/S0304397525006425
--- TODO - missing test cases for choice rules
+-- TODO - missing test cases for width-subtyping rules in choices
+
+-- S-Arrow X
+case U1 -> U2 <: T1 1-> T2 : 1T
+where -- U1 <: T1 and T2 <: U2 and * subset 1
+  type T1, T2, U1, U2 : *T
+  type T1 = {t1: Int | t1 > 0}
+  type T2 = {t2: Int | t2 > 1}
+  type U1 = {u1: Int | u1 > 1}
+  type U2 = {u2: Int | u2 > 0}
+
+-- S-Arrow X
+case T1 1-> T2 <: U1 -> U2 : 1T
+where -- U1 <: T1 and T2 <: U2 and * subset 1
+  type T1, T2, U1, U2 : *T
+  type T1 = {t1: Int | t1 > 0}
+  type T2 = {t2: Int | t2 > 1}
+  type U1 = {u1: Int | u1 > 1}
+  type U2 = {u2: Int | u2 > 0}
 
 -- S-In X
 case U <: T : 1S
@@ -91,6 +109,46 @@ where
   type T, U : 1S
   type T = !{t: Int | t > 0}
   type U = !{u: Int | u > 1}
+
+-- S-ExtChoice (currently only for depth-subtyping) X
+case Offer2 <: Offer1 : 1S
+where -- L subset K and Sj <: Rj (for each j in L), with L being the labels of Offer1 and K of Offer2
+  type Offer1, Offer2, S1, S2, R1, R2 : 1S
+  type S1 = ?{s1: Int | s1 > 1}
+  type S2 = !{s2: Int | s2 > 0}
+  type R1 = ?{r1: Int | r1 > 0}
+  type R2 = !{r2: Int | r2 > 1}
+  type Offer1 = &{
+      A: S1,
+      B: S2
+    }
+  type Offer2 = &{
+      B: R2,
+      A: R1
+    }
+
+-- S-IntChoice (currently only for depth-subtyping) X
+case Choice2 <: Choice1 : 1S
+where -- K subset L and Sj <: Rj (for each j in K), with L being the labels of Choice1 and K of Choice2
+  type Choice1, Choice2, S1, S2, R1, R2 : 1S
+  type S1 = ?{s1: Int | s1 > 1}
+  type S2 = !{s2: Int | s2 > 0}
+  type R1 = ?{r1: Int | r1 > 0}
+  type R2 = !{r2: Int | r2 > 1}
+  type Choice1 = +{
+      A: S1,
+      B: S2
+    }
+  type Choice2 = +{
+      B: R2,
+      A: R1
+    }
+
+-- S-End X
+case Close <: Wait : 1C
+
+-- S-End X
+case Wait <: Close : 1C
 
 -- S-InSeqL X
 case ?U ; S <: ?T : 1S
@@ -167,6 +225,94 @@ where -- U <: T && S <: R
   type U = {u: Int | u > 1}
   type S = ?{s: Int | s > 10}
   type R = ?{r: Int | r > 5}
+
+-- S-ChoiceSeqL (Offer) X
+case SimpleOffer ; S <: R : 1S
+where -- Offer (with ; S at the end of each label in SimpleOffer) <: R
+  type SimpleOffer, Offer, R, S1, S2, R1, R2, S : 1S
+  type S1 = ?{s1: Int | s1 > 1}
+  type S2 = !{s2: Int | s2 > 0}
+  type R1 = ?{r1: Int | r1 > 0}
+  type R2 = !{r2: Int | r2 > 1}
+  type S = ?{s: Int | s > 1}
+  type Offer = &{
+      A: S1 ; S,
+      B: S2 ; S
+    }
+  type R = &{
+      B: R2 ; S,
+      A: R1 ; S
+    }
+  type SimpleOffer = &{
+      A: S1 ; S,  -- X
+      B: S2
+    }
+
+-- S-ChoiceSeqL (Choice) X
+case SimpleChoice ; S <: R : 1S
+where -- Choice (with ; S at the end of each label in SimpleChoice) <: R
+  type SimpleChoice, Choice, R, S1, S2, R1, R2, S : 1S
+  type S1 = ?{s1: Int | s1 > 1}
+  type S2 = !{s2: Int | s2 > 0}
+  type R1 = ?{r1: Int | r1 > 0}
+  type R2 = !{r2: Int | r2 > 1}
+  type S = ?{s: Int | s > 1}
+  type Choice = +{
+      A: S1 ; S,
+      B: S2 ; S
+    }
+  type R = +{
+      B: R2 ; S,
+      A: R1 ; S
+    }
+  type SimpleChoice = +{
+      A: S1 ; S,  -- X
+      B: S2
+    }
+
+-- S-ChoiceSeqR (Offer) X
+case S <: SimpleOffer ; R : 1S
+where -- S <: Offer (with ; R at the end of each label in SimpleOffer)
+  type SimpleOffer, Offer, S, S1, S2, R1, R2, R : 1S
+  type S1 = ?{s1: Int | s1 > 1}
+  type S2 = !{s2: Int | s2 > 0}
+  type R1 = ?{r1: Int | r1 > 0}
+  type R2 = !{r2: Int | r2 > 1}
+  type R = ?{r: Int | r > 1}
+  type S = &{
+      A: S1 ; R,
+      B: S2 ; R
+    }
+  type Offer = &{
+      B: R2 ; R,
+      A: R1 ; R
+    }
+  type SimpleOffer = &{
+      A: R1 ; R,  -- X
+      B: R2
+    }
+
+-- S-ChoiceSeqR (Choice) X
+case S <: SimpleChoice ; R : 1S
+where -- S <: Choice (with ; R at the end of each label in SimpleChoice)
+  type SimpleChoice, Choice, S, S1, S2, R1, R2, R : 1S
+  type S1 = ?{s1: Int | s1 > 1}
+  type S2 = !{s2: Int | s2 > 0}
+  type R1 = ?{r1: Int | r1 > 0}
+  type R2 = !{r2: Int | r2 > 1}
+  type R = ?{r: Int | r > 1}
+  type S = +{
+      A: S1 ; R,
+      B: S2 ; R
+    }
+  type Choice = +{
+      B: R2 ; R,
+      A: R1 ; R
+    }
+  type SimpleChoice = +{
+      A: R1 ; R,  -- X
+      B: R2
+    }
 
 -- S-EndSeq (Close) X
 case End ; R <: End ; S : 1C
