@@ -1,4 +1,4 @@
-module RefinedPingPong where
+module ChoiceNotSubtypePingPong where
 
 {-
 ThinPing <: Ping
@@ -22,7 +22,7 @@ type Nat = {n: Int | n >= 0}
 pong : Pong
 pong = -3
 
-runServer : PingPongServer -> ()
+runServer : ThinPingPongServer -> ()
 runServer c =
   case c of
     &Send c ->
@@ -40,11 +40,11 @@ runClient n_pings c =
     let (pong, c) = receive c in
     runClient (n_pings - 1) c 
 
-start : Nat -> (ThinPingPongServer -> ()) -> ()
+start : Nat -> (PingPongServer -> ()) -> ()
 start n_pings server =
   let (c, s) = channel @ThinPingPongClient in
   fork (\(_ : ()) 1-> server s);
   runClient n_pings c
 
 main : ()
-main = start 3 runServer
+main = start 3 runServer -- X - (ThinPingPongServer -> ()) not subtype of (PingPongServer -> ())
