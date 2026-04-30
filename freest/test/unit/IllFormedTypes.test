@@ -177,7 +177,7 @@ case {a: Int | b >= 0} : *T
 
 case {a: Int | a >= b} : *T
 
-case {a: Int | a /= 0} : 1S
+case {a: Int | a /= 0}; Close : 1S
 
 case A ; B ; Close : 1C
 where

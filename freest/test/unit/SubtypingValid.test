@@ -281,7 +281,7 @@ where -- S1 ; S2 <: R and S1 recursive
   type S1 = ?{s1: Int | s1 > 1} ; S1
   type S2 = !{s2: Int | s2 > 0}
   type R = R1 ; R2
-  type R1 = ?{r1: Int | r1 > 0}
+  type R1 = ?{r1: Int | r1 > 0} ; R1
   type R2 = !{r2: Int | r2 > 1}
 
 -- S-RecSeqR
@@ -289,7 +289,7 @@ case S <: R1 ; R2 : 1S
 where -- S <: R1 ; R2 and R1 recursive
   type S, S1, S2, R1, R2 : 1S
   type S = S1 ; S2
-  type S1 = ?{s1: Int | s1 > 1}
+  type S1 = ?{s1: Int | s1 > 1} ; S1
   type S2 = !{s2: Int | s2 > 0}
   type R1 = ?{r1: Int | r1 > 0} ; R1
   type R2 = !{r2: Int | r2 > 1}

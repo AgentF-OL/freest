@@ -11,11 +11,11 @@ type Die = {v: Int | False} -- never typechecks
 die : Die
 die = 1
 
-betweenLifeAndDeath : ()
+betweenLifeAndDeath : Int
 betweenLifeAndDeath =
   if 1 + 1 == 2
   then die -- typecheck error since this branch might happen (it will)
-  else ()
+  else 5
 
-main : ()
+main : Int
 main = betweenLifeAndDeath

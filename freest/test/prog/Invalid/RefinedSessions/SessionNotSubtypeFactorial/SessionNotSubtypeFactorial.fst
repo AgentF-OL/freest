@@ -32,11 +32,17 @@ type FactMainServer =        ?Int ; !Nat ; Wait
 type FactMainClient = Dual FactServer     -- !Nat ; ?Int ; Close
 type FactClient     = Dual FactMainServer -- !Int ; ?Nat ; Close
 
-factorial : Int -> Nat
-factorial n
-  | n <= 0 = -1 -- error
+factorial' : Int -> Nat
+factorial' n
+  | n <= 0 = 0
   | n == 0 = 1
-  | otherwise = n * factorial (n - 1)
+  | otherwise = n * factorial' (n - 1)
+
+factorial : Int -> Nat
+factorial n =
+  if n <= 0 then 0
+  else if n == 0 then 1
+  else n * factorial (n - 1)
 
 factServer : FactServer -> ()
 factServer c =

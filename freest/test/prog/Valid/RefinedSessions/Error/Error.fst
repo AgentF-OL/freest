@@ -11,11 +11,11 @@ type Die = {v: Int | False} -- never typechecks
 die : Die
 die = 1
 
-betweenLifeAndDeath : ()
+betweenLifeAndDeath : Int
 betweenLifeAndDeath =
   if 1 + 1 == 3
   then die
-  else ()
+  else 5
 
-main : ()
+main : Int
 main = betweenLifeAndDeath

@@ -1,23 +1,23 @@
 module InvalidIntInDataType where
 
-type PositiveInt, NegativeInt : *T
+type Pos, Neg : *T
 type PolarTree : *T -> *T -> *T
 
-type PositiveInt = {x: Int | x >= 0}
-type NegativeInt = {y: Int | y <= 0}
+type Pos = {x: Int | x >= 0}
+type Neg = {y: Int | y <= 0}
 
 -- Left of each node has type a and right has type b
 data PolarTree a b =
     Leaf
   | Node (PolarTree a b) a (PolarTree b a)
 
-buildPolarIntTree : PolarTree PositiveInt NegativeInt
-buildPolarIntTree = Node @PositiveInt @NegativeInt left 0 right
+buildPolarIntTree : PolarTree Pos Neg
+buildPolarIntTree = Node @Pos @Neg left 0 right
   where
-    leftLeft = Node @PositiveInt @NegativeInt Leaf 2 Leaf                  -- should be positive
-    leftRight = Node @PositiveInt @NegativeInt (Node @PositiveInt @NegativeInt Leaf -3 Leaf) -2 Leaf
-    left = Node @PositiveInt @NegativeInt leftLeft 1 leftRight
-    right = Node @PositiveInt @NegativeInt Leaf -1 Leaf
+    leftLeft = Node @Pos @Neg (Leaf @Pos @Neg) 2 (Leaf @Pos @Neg) -- -3 should be positive
+    leftRight = Node @Pos @Neg (Node @Pos @Neg (Leaf @Pos @Neg) -3 (Leaf @Pos @Neg)) -2 (Leaf @Pos @Neg)
+    left = Node @Pos @Neg leftLeft 1 leftRight
+    right = Node @Pos @Neg (Leaf @Pos @Neg) -1 (Leaf @Pos @Neg)
 
 main : ()
 main = buildPolarIntTree; ()

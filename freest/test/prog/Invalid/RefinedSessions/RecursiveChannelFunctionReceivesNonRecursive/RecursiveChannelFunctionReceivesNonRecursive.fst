@@ -3,8 +3,8 @@ module RecursiveChannelFunctionReceivesNonRecursive where
 type PingPongRecursiveServer, PingPongRecursiveClient, PingPongServer, PingPongClient : 1C
 type Ping, Pong : *T
 
-type PingPongRecursiveServer = ?Ping ; !Pong ; PingPongRecursiveServer ; Close
-type PingPongRecursiveClient = !Ping ; ?Pong ; PingPongRecursiveClient ; Wait
+type PingPongRecursiveServer = ?Ping ; !Pong ; PingPongRecursiveServer
+type PingPongRecursiveClient = !Ping ; ?Pong ; PingPongRecursiveClient
 type PingPongServer = ?Ping ; !Pong ; Wait
 type PingPongClient = Dual PingPongServer
 

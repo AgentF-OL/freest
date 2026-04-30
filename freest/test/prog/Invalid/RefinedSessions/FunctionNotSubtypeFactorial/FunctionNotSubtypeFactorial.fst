@@ -2,10 +2,10 @@ module FunctionNotSubtypeFactorial where
 
 {-
 method       | expects            | receives       | from
-#############|####################|################|###############
-startClient  | Nat func           | Nat funcMain   | main           X
+#############|####################|################|################
+startClient  | Nat func           | Nat funcMain   | main         -- X
 factClient   | Int FactMainClient | Nat FactClient | startClient
-factServer   | FactMainServer     | FactServer     | startClient
+factServer   | FactMainServer     | FactMainServer | startClient
 factServer   | Int                | Int            | factClient
 factorial    | Int                | Int            | factServer
 factServer   | Nat                | Nat            | factorial
@@ -14,12 +14,12 @@ startClient  | Int                | Nat            | factClient
 main         | Int                | Int            | startClient
 
 where
-  receives   <: expects  (for each element)
+  receives   <: expects  (for each element)  -- X
   Nat        <: Int
   FactServer <: FactMainServer
   FactClient <: FactMainClient
-  funcMain   <: func      X
-  funcMain   = Int -> FactClient -> Nat        
+  funcMain   <: func  -- X - FactMainClient is not a subtype of FactClient
+  funcMain   = Int -> FactClient -> Nat
   func       = Nat -> FactMainClient -> Int
 -}
 
@@ -32,11 +32,17 @@ type FactMainServer =        ?Int ; !Nat ; Wait
 type FactMainClient = Dual FactServer     -- !Nat ; ?Int ; Close
 type FactClient     = Dual FactMainServer -- !Int ; ?Nat ; Close
 
-factorial : Int -> Nat
-factorial n
-  | n <= 0 = -1 -- error
+factorial' : Int -> Nat
+factorial' n
+  | n <= 0 = 0
   | n == 0 = 1
-  | otherwise = n * factorial (n - 1)
+  | otherwise = n * factorial' (n - 1)
+
+factorial : Int -> Nat
+factorial n =
+  if n <= 0 then 0
+  else if n == 0 then 1
+  else n * factorial (n - 1)
 
 factServer : FactMainServer -> ()
 factServer c =
@@ -49,10 +55,9 @@ factClient n c = c |> send n
 
 startClient : Nat -> (Nat -> FactMainClient -> Int) -> Int
 startClient n client =
-  let (w,_) = channel @FactClient in
-  let (_,r) = channel @FactMainClient in
+  let (w,r) = channel @FactClient in
   fork @() (\(_ : ()) 1-> factServer r);
   client x w
 
 main : Int
-main = startClient 5 factClient
+main = startClient 5 factClient  -- X
