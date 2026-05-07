@@ -45,7 +45,7 @@ word' ctx = \case
   -- W-EndVoid (2/2)
   t@T.Void{} -> getNonterminal $ Map.singleton (Default $ show t) [bottom]
   -- Int, Float, Char, Variant types
-  t@T.Int{} -> getNonterminal $ Map.singleton (Default $ show t) []
+  T.Int _ _ p -> getNonterminal $ Map.singleton (Refinement p) []
   t@T.Float{} -> getNonterminal $ Map.singleton (Default $ show t) []
   t@T.Char{} -> getNonterminal $ Map.singleton (Default $ show t) []
   t@T.DName{} -> getNonterminal $ Map.singleton (Default $ show t) []

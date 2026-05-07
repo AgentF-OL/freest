@@ -116,6 +116,8 @@ expandPairSub ps (xs, ys) =
       map (\f -> Map.filterWithKey (\k _ -> f k)) 
           [memberX, memberY, memberZ, memberW]
 
-    -- Match transitions with the same label
+    -- Match transitions with the "same" label:
+    -- - for non-refined types, based on syntax equality
+    -- - for refined types, based on predicate implication (p1 => p2)
     matchTrans :: Transitions -> Transitions -> Node
     matchTrans m1 m2 = Set.fromList $ Map.elems $ Map.intersectionWith (,) m1 m2

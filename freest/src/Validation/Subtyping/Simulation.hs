@@ -35,7 +35,7 @@ import qualified Data.Set                   as Set
 import qualified Data.Sequence              as Queue
 import           Data.Bifunctor
 import           Data.List                  ( union, stripPrefix )
--- Word is (re)defined in module Equivalence.Grammar
+-- Word is (re)defined in module Subtyping.Grammar
 import           Prelude                    hiding ( Word )
 import           Data.Bitraversable         ( bisequence )
 

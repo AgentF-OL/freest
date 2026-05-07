@@ -35,16 +35,28 @@ import Data.Map qualified as Map
 import Data.Maybe qualified as Maybe
 import Data.Set qualified as Set
 import qualified Syntax.Type.Kinded as T
+import qualified Syntax.Type.Refinement as R
+import Parser.Unparser (unparse)
+import Validation.Subtyping.SMTSolver (predImplies)
 
 -- Terminal symbols in the grammar
-data Terminal = Default String | Arrow1 | Bang1
-  deriving (Eq, Ord)
+data Terminal = Default String | Arrow1 | Bang1 | Refinement R.Pred
+  deriving Ord
+
+instance Eq Terminal where
+  t == u = case (t, u) of
+    (Default t1, Default t2) -> t1 == t2
+    (Arrow1, Arrow1) -> True
+    (Bang1, Bang1) -> True
+    (Refinement p1, Refinement p2) -> p1 `predImplies` p2
+    _ -> False
 
 instance Show Terminal where
   show = \case
-    Default s -> s
-    Arrow1    -> "(->)1"
-    Bang1     -> "(!)1"
+    Default s    -> s
+    Arrow1       -> "(->)1"
+    Bang1        -> "(!)1"
+    Refinement p -> unparse p
 
 -- Non-terminal symbols in the grammar
 type Nonterminal = Int
