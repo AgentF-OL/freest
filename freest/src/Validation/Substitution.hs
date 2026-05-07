@@ -13,12 +13,15 @@ module Validation.Substitution
   , subsAll
   , betaRule
   , freeVars
+  , predSubs
+  , predFreeVars
   )
 where
 
 import Syntax.Base
 import Syntax.Type.Internal qualified as T
 import Syntax.Type.Kinded qualified as TK
+import Syntax.Type.Refinement qualified as R
 import Syntax.Kind qualified as K
 import Data.Set qualified as Set
 
@@ -80,3 +83,60 @@ betaRule (TK.Abs s aks t) us
   where n = length aks
         m = length us
         v = subsAll (map fst aks) us t
+
+predFreeVars :: R.Pred -> Set.Set Variable
+predFreeVars = predFreeVars' Set.empty
+
+predFreeVars' :: Set.Set Variable -> R.Pred -> Set.Set Variable
+predFreeVars' vars = \case
+  R.Cmp e1 cmp e2 -> Set.unions [vars, predExpFreeVars e1, predExpFreeVars e2]
+  R.And p1 p2 -> Set.unions [vars, predFreeVars p1, predFreeVars p2]
+  R.Or p1 p2 -> Set.unions [vars, predFreeVars p1, predFreeVars p2]
+  R.Implies p1 p2 -> Set.unions [vars, predFreeVars p1, predFreeVars p2]
+  R.Iff p1 p2 -> Set.unions [vars, predFreeVars p1, predFreeVars p2]
+  R.Not p -> Set.unions [vars, predFreeVars p]
+  R.Let v p -> Set.unions [vars, Set.delete v $ predFreeVars p]
+  R.PTrue -> Set.empty
+  R.PFalse -> Set.empty
+
+predExpFreeVars :: R.Exp -> Set.Set Variable
+predExpFreeVars = predExpFreeVars' Set.empty
+
+predExpFreeVars' :: Set.Set Variable -> R.Exp -> Set.Set Variable
+predExpFreeVars' vars = \case
+  R.Var v -> Set.insert v vars
+  R.Const _ -> Set.empty
+  R.Sum e1 e2 -> Set.unions [vars, predExpFreeVars e1, predExpFreeVars e2]
+  R.Sub e1 e2 -> Set.unions [vars, predExpFreeVars e1, predExpFreeVars e2]
+  R.Prod _ e -> Set.unions [vars, predExpFreeVars e]
+  R.Cond e1 e2 e3 -> Set.unions [vars, predFreeVars e1, predExpFreeVars e2, predExpFreeVars e3]
+
+-- | Predicate substitution.
+-- Substitutes free ocurrences of variable 'v1' in 'p' by 'v2'
+predSubs :: Variable -> Variable -> R.Pred -> R.Pred
+predSubs v1 v2 p
+  | v1 `elem` predFreeVars p = predSubs' v1 v2 p
+  | otherwise = p
+
+predSubs' :: Variable -> Variable -> R.Pred -> R.Pred
+predSubs' v1 v2 = \case
+  R.Cmp e1 cmp e2 -> R.Cmp (predExpSubs v1 v2 e1) cmp (predExpSubs v1 v2 e2)
+  R.And p1 p2 -> R.And (predSubs v1 v2 p1) (predSubs v1 v2 p2)
+  R.Or p1 p2 -> R.Or (predSubs v1 v2 p1) (predSubs v1 v2 p2)
+  R.Implies p1 p2 -> R.Implies (predSubs v1 v2 p1) (predSubs v1 v2 p2)
+  R.Iff p1 p2 -> R.Iff (predSubs v1 v2 p1) (predSubs v1 v2 p2)
+  R.Not p -> R.Not (predSubs v1 v2 p)
+  R.Let x p -> R.Let x (predSubs v1 v2 p)
+  R.PTrue -> R.PTrue
+  R.PFalse -> R.PFalse
+
+predExpSubs :: Variable -> Variable -> R.Exp -> R.Exp
+predExpSubs v1 v2 = \case
+  R.Var x
+    | x == v1 -> R.Var v2
+    | otherwise -> R.Var x
+  R.Const c -> R.Const c
+  R.Sum e1 e2 -> R.Sum (predExpSubs v1 v2 e1) (predExpSubs v1 v2 e2)
+  R.Sub e1 e2 -> R.Sub (predExpSubs v1 v2 e1) (predExpSubs v1 v2 e2)
+  R.Prod c e -> R.Prod c (predExpSubs v1 v2 e)
+  R.Cond p e1 e2 -> R.Cond (predSubs v1 v2 p) (predExpSubs v1 v2 e1) (predExpSubs v1 v2 e2)
