@@ -27,7 +27,8 @@ runServer c =
   case c of
     &Send c ->
       let (ping, c) = receive c in
-      c |> send pong |> wait
+      let c = send pong c in
+      runServer c
     &Stop c -> wait c
 
 runClient : Nat -> ThinPingPongClient -> ()

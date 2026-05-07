@@ -1,6 +1,6 @@
 module FailedExpectationStairs where
 
-type BiggerThanZero, BiggerThanOne, BetweenTwoAndFive, FourOrTwo, Four : *T
+type BiggerThanZero, BiggerThanOne, BiggerThanZero2, FourOrTwo, Four : *T
 
 type BiggerThanZero  = {n: Int | n > 0}
 type BiggerThanOne   = {n: Int | n > 1}

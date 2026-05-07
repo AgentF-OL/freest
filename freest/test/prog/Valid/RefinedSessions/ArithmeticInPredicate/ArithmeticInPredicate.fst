@@ -4,7 +4,7 @@ type SmallerThanZero, Result : *T
 
 type SmallerThanZero = {x: Int | x < 0}
 type Result = 
-  {z: Int | 2 * z + 5 - (3 - 7 * 4 * 2 + 2 * -1 * (z + z + 2 * z)) <= 48}
+  {z: Int | 2 * z + 5 - (3 - 7 * 4 * 2 + 2 * (-1) * (z + z + 2 * z)) <= 48}
 
 -- z:
 --   2 * x -> z <= -2
@@ -16,4 +16,4 @@ veryComplexArithmetic : SmallerThanZero -> Result
 veryComplexArithmetic x = x
 
 main : Result
-main = arithmetic -2
+main = veryComplexArithmetic (-2)

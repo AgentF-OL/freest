@@ -400,8 +400,9 @@ PExp :: { R.Exp }
   | '(' PExp ')'                       { $2 }
 
 TypeOrNegType(t)
-  : t                { read $ getText $1 }
-  | '-' t %prec NEG  { read $ '-' : (getText $2) }
+  : t                         { read $ getText $1 }
+  | '-' t %prec NEG           { read $ '-' : (getText $2) }
+  | '(' TypeOrNegType(t) ')'  { $2 }
 
 KindedVarListWS :: { [(Variable, K.Kind)] }
   : {- empty -} { [] }

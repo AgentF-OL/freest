@@ -57,7 +57,7 @@ startClient : Nat -> (Nat -> FactClient -> Int) -> Int
 startClient n client =
   let (w,r) = channel @FactClient in
   fork @() (\(_ : ()) 1-> factServer r); -- r is of type FactMainServer
-  client x w
+  client n w
 
 main : Int
 main = startClient 5 factClient

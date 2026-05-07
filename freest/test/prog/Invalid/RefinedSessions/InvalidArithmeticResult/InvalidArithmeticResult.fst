@@ -13,7 +13,7 @@ type Result          = {z: Int | z <= 95} -- X - can also be 96
 --   + 7 * 4 * 2 -> z <= 56
 --   + 8y (between -40 and 40) -> z <= 16 || ... || z <= 96 -> z <= 96
 arithmetic : SmallerThanZero -> BetweenFives -> Result
-arithmetic x y = 2 * x + 5 - (3 - 7 * 4 * 2 + 2 * -1 * (y + y + 2 * y))
+arithmetic x y = 2 * x + 5 - (3 - 7 * 4 * 2 + 2 * (-1) * (y + y + 2 * y))
 
 main : Result
-main = arithmetic -2 2
+main = arithmetic (-2) 2

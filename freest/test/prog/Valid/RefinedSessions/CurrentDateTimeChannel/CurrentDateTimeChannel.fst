@@ -31,15 +31,15 @@ dateClient c =
   let (year, c) = receive c in
   let (month, c) = receive c in
   let (day, c) = receive c in
-  (year, month, day)
+  close c; (year, month, day)
 
 timeClient : DateTimeClient -> Time
-timeClient w =
+timeClient c =
   let c = select Time c in
   let (hour, c) = receive c in
   let (minute, c) = receive c in
   let (second, c) = receive c in
-  (hour, minute, second)
+  close c; (hour, minute, second)
 
 startDateClient : (DateTimeClient -> Date) -> Date
 startDateClient client =

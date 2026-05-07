@@ -8,4 +8,4 @@ divide : Int -> NotZero -> Int
 divide x y = x / y
 
 main : Int
-main = 6 3
+main = divide 6 3

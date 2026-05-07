@@ -35,4 +35,4 @@ startClient x client =
   client x w
 
 main : Nat
-main = startClient -5 absClient
+main = startClient (-5) absClient

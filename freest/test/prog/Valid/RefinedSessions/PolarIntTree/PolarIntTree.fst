@@ -8,7 +8,7 @@ type Neg = {y: Int | y <= 0}
 type GOne = {x: Int | x > 1}
 type LOne = {y: Int | y < 1}
 
--- Left of each node has type a and right has type b
+-- Left of each node is of a type and right is of another
 data PolarTree a b =
     Leaf
   | Node (PolarTree a b) a (PolarTree b a)
@@ -16,10 +16,10 @@ data PolarTree a b =
 buildPolarIntTree : PolarTree Pos Neg
 buildPolarIntTree = Node @Pos @Neg left 0 right
   where
-    leftLeft = Node @GOne @LOne (Leaf @GOne @LOne) greaterThanOne (Leaf @GOne @LOne) -- depth-subtyping
-    leftRight = Node @Pos @Neg (Node @Pos @Neg (Leaf @Pos @Neg) 3 (Leaf @Pos @Neg)) -2 (Leaf @Pos @Neg)
+    leftLeft = Node @GOne @LOne (Leaf @GOne @LOne) greaterThanOne (Leaf @LOne @GOne) -- depth-subtyping
+    leftRight = Node @Neg @Pos (Node @Neg @Pos (Leaf @Neg @Pos) (-3) (Leaf @Pos @Neg)) (-2) (Leaf @Pos @Neg)
     left = Node @Pos @Neg leftLeft 1 leftRight
-    right = Node @Pos @Neg (Leaf @Pos @Neg) -1 (Leaf @Pos @Neg)
+    right = Node @Neg @Pos (Leaf @Neg @Pos) (-1) (Leaf @Pos @Neg)
 
 greaterThanOne : GOne
 greaterThanOne = 2
