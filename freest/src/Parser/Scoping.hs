@@ -513,7 +513,9 @@ freshKVar (getSpan -> s) = do
 -- | Scope a type.
 scopeType :: ScopingCtx -> T.ParsedType -> Validation T.ScopedType
 scopeType ctx = \case
-  T.Int s v p -> scopeRefinedType emptyScopingCtx (T.Int s v p) -- TODO: do not use an empty context for refinement
+  T.Int s v p -> do  -- TODO: do not use an empty context for refinement
+    (t, ctx') <- scopeRefinedType emptyScopingCtx (T.Int s v p)
+    return t
   T.Float s -> pure $ T.Float s
   T.Char s -> pure $ T.Char s
   T.Arrow s m -> T.Arrow s <$> scopeMultiplicity m
@@ -546,57 +548,73 @@ scopeType ctx = \case
     T.App s <$> scopeType ctx t <*> mapM (scopeType ctx) ts
 
 -- | Scope a type that may be refined.
-scopeRefinedType :: ScopingCtx -> T.ParsedType -> Validation T.ScopedType
+scopeRefinedType :: ScopingCtx -> T.ParsedType -> Validation (T.ScopedType, ScopingCtx)
 scopeRefinedType ctx = \case
   T.Int s v p -> case internal v of
-    -2 -> pure $ T.Int s v p
+    -2 -> pure (T.Int s v p, ctx)
     _ -> do
       v' <- freshInternal v
       let ctx' = insertEVar v' ctx
-      p' <- scopePred ctx' p
-      return $ T.Int s v' p'
+      (p', ctx'') <- scopePred ctx' p
+      return (T.Int s v' p', ctx'')
 
 -- | Scope the predicate of a refined type.
-scopePred :: ScopingCtx -> R.Pred -> Validation R.Pred
+scopePred :: ScopingCtx -> R.Pred -> Validation (R.Pred, ScopingCtx)
 scopePred ctx = \case
-  R.Cmp e1 cmp e2 -> R.Cmp
-    <$> scopePExp ctx e1
-    <*> pure cmp
-    <*> scopePExp ctx e2
-  R.And p1 p2 -> R.And
-    <$> scopePred ctx p1
-    <*> scopePred ctx p2
-  R.Or p1 p2 -> R.Or
-    <$> scopePred ctx p1
-    <*> scopePred ctx p2
-  R.Implies p1 p2 -> R.Implies
-    <$> scopePred ctx p1
-    <*> scopePred ctx p2
-  R.Iff p1 p2 -> R.Iff
-    <$> scopePred ctx p1
-    <*> scopePred ctx p2
-  R.Not p -> R.Not <$> scopePred ctx p
-  R.PTrue -> pure R.PTrue
-  R.PFalse -> pure R.PFalse
+  R.Cmp e1 cmp e2 -> do
+    (e1', ctx') <- scopePExp ctx e1
+    (e2', ctx'') <- scopePExp ctx' e2
+    return (R.Cmp e1' cmp e2', ctx'')
+  R.And p1 p2 -> do
+    (p1', ctx') <- scopePred ctx p1
+    (p2', ctx'') <- scopePred ctx' p2
+    return (R.And p1' p2', ctx'')
+  R.Or p1 p2 -> do
+    (p1', ctx') <- scopePred ctx p1
+    (p2', ctx'') <- scopePred ctx' p2
+    return (R.Or p1' p2', ctx'')
+  R.Implies p1 p2 -> do
+    (p1', ctx') <- scopePred ctx p1
+    (p2', ctx'') <- scopePred ctx' p2
+    return (R.Implies p1' p2', ctx'')
+  R.Iff p1 p2 -> do
+    (p1', ctx') <- scopePred ctx p1
+    (p2', ctx'') <- scopePred ctx' p2
+    return (R.Iff p1' p2', ctx'')
+  R.Let v p -> do
+    v' <- freshInternal v
+    let ctx' = insertEVar v' ctx
+    (p', ctx'') <- scopePred ctx' p
+    return (R.Let v' p', ctx'')
+  R.Not p -> do
+    (p', ctx') <- scopePred ctx p
+    return (R.Not p', ctx')
+  R.PTrue -> pure (R.PTrue, ctx)
+  R.PFalse -> pure (R.PFalse, ctx)
 
 -- | Scope the expression of a predicate.
-scopePExp :: ScopingCtx -> R.Exp -> Validation R.Exp
+scopePExp :: ScopingCtx -> R.Exp -> Validation (R.Exp, ScopingCtx)
 scopePExp ctx = \case
   R.Var x -> case lookupEVar x ctx of
-    Just v -> pure $ R.Var x{internal = internal v}
-    Nothing -> do insertError (TypeVarOutOfScope (getSpan x) x); pure $ R.Var x
-  R.Const c -> pure $ R.Const c
-  R.Sum e1 e2 -> R.Sum
-    <$> scopePExp ctx e1
-    <*> scopePExp ctx e2
-  R.Sub e1 e2 -> R.Sub
-    <$> scopePExp ctx e1
-    <*> scopePExp ctx e2
-  R.Prod c e -> R.Prod c <$> scopePExp ctx e
-  R.Cond p e1 e2 -> R.Cond
-    <$> scopePred ctx p
-    <*> scopePExp ctx e1
-    <*> scopePExp ctx e2
+    Just v -> pure (R.Var x{internal = internal v}, ctx)
+    Nothing -> do insertError (TypeVarOutOfScope (getSpan x) x); return (R.Var x, ctx)
+  R.Const c -> pure (R.Const c, ctx)
+  R.Sum e1 e2 -> do
+    (e1', ctx') <- scopePExp ctx e1
+    (e2', ctx'') <- scopePExp ctx' e2
+    return (R.Sum e1' e2', ctx'')
+  R.Sub e1 e2 -> do
+    (e1', ctx') <- scopePExp ctx e1
+    (e2', ctx'') <- scopePExp ctx' e2
+    return (R.Sub e1' e2', ctx'')
+  R.Prod c e -> do
+    (e', ctx') <- scopePExp ctx e
+    return (R.Prod c e', ctx')
+  R.Cond p e1 e2 -> do
+    (p', ctx') <- scopePred ctx p
+    (e1', ctx'') <- scopePExp ctx' e1
+    (e2', ctx''') <- scopePExp ctx'' e2
+    return (R.Cond p' e1' e2', ctx''')
 
 -- | Scope a type, universally quantifying any free variables it might have
 -- with a fresh kind inference variable.

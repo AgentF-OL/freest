@@ -12,6 +12,7 @@ import Data.List qualified as List
 
 data Precedence =
     PMin
+  | PElse
   | PDot
   | PArrow
   | PSemi
@@ -35,6 +36,7 @@ type Rator = (Precedence, Associativity)
 type Fragment = (Rator, String)
 
 minRator
+  , elseRator
   , dotRator
   , iffRator
   , impliesRator
@@ -51,11 +53,12 @@ minRator
   , maxRator
   :: Rator
 minRator      = (minBound , NonAssoc)
+elseRator     = (PElse    , RightAssoc)
 dotRator      = (PDot     , RightAssoc)
-iffRator      = (PIff     , LeftAssoc)
-impliesRator  = (PImplies , RightAssoc)
 arrowRator    = (PArrow   , RightAssoc)
 semiRator     = (PSemi    , RightAssoc)
+iffRator      = (PIff     , LeftAssoc)
+impliesRator  = (PImplies , RightAssoc)
 pipePipeRator = (PPipePipe, LeftAssoc)
 ampAmpRator   = (PAmpAmp  , LeftAssoc)
 cmpRator      = (PCmp     , NonAssoc)
@@ -179,6 +182,7 @@ instance Unparse R.Pred where
     R.Implies p1 p2 -> (impliesRator, l p1 impliesRator ++ " => " ++ r p2 impliesRator)
     R.Iff p1 p2 -> (iffRator, l p1 iffRator ++ " <=> " ++ r p2 iffRator)
     R.Not p -> (notRator, "not " ++ r p notRator)
+    R.Let v p -> (elseRator, "let " ++ unparse v ++ " in " ++ unparse p)
     R.PTrue -> (maxRator, "True")
     R.PFalse -> (maxRator, "False")
     where

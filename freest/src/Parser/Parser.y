@@ -374,12 +374,13 @@ LabelListComma :: { [Identifier] }
   | UPPER_ID                    { [mkIdTk $1] }
 
 Pred :: { R.Pred }
-  : PExp CMP PExp    { % fromCMPPred $1 $2 $3 }
-  | Pred '&&' Pred   { R.And $1 $3 }
-  | Pred '||' Pred   { R.Or $1 $3 }
-  | Pred '=>' Pred   { R.Implies $1 $3 }
-  | Pred '<=>' Pred  { R.Iff $1 $3 }
-  | PApp             { $1 }
+  : PExp CMP PExp           { % fromCMPPred $1 $2 $3 }
+  | Pred '&&' Pred          { R.And $1 $3 }
+  | Pred '||' Pred          { R.Or $1 $3 }
+  | Pred '=>' Pred          { R.Implies $1 $3 }
+  | Pred '<=>' Pred         { R.Iff $1 $3 }
+  | 'let' ExpVar 'in' Pred  { R.Let $2 $4 }
+  | PApp                    { $1 }
 
 PApp :: { R.Pred }
   : LOWER_ID PPrimary  { % predicateNot $1 $2 }

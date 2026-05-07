@@ -14,6 +14,7 @@ data Pred
   | Implies Pred Pred
   | Iff Pred Pred
   | Not Pred
+  | Let Variable Pred
   | PTrue
   | PFalse
   deriving (Eq, Ord)
@@ -44,6 +45,7 @@ instance Show Pred where
     Implies p1 p2 -> "(" ++ show p1 ++ " => " ++ show p2 ++ ")"
     Iff p1 p2 -> "(" ++ show p1 ++ " <=> " ++ show p2 ++ ")"
     Not p -> "(not " ++ show p ++ ")"
+    Let v p -> "(let " ++ show v ++ " in " ++ show p ++ ")"
     PTrue -> "True"
     PFalse -> "False"
 
