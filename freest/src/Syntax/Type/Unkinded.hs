@@ -54,6 +54,8 @@ module Syntax.Type.Unkinded
   , T.isAppQuant
   , T.isAppDName
   , T.fromVariable
+  , T.getRefinement
+  , T.setRefinement
   )
 where
 

@@ -48,6 +48,8 @@ module Syntax.Type.Internal
   , isAppQuant
   , isAppDName
   , fromVariable
+  , getRefinement
+  , setRefinement
   )
 where
 
@@ -239,6 +241,16 @@ isAppDName     = \case AppDName{}     -> True; _ -> False
 
 fromVariable :: Variable -> XType x -> Type x
 fromVariable a x = Var (varSpan a) x a
+
+getRefinement :: Type x -> Maybe (Variable, String, R.Pred)
+getRefinement = \case
+  Int _ _ v p -> Just (v, "Int", p)
+  _ -> Nothing
+
+setRefinement :: Type x -> Variable -> R.Pred -> Maybe (Type x)
+setRefinement t v p = case t of
+  Int s x _ _ -> Just $ Int s x v p
+  _ -> Nothing
 
 instance Show Polarity where
   show = \case In -> "?"; Out -> "!"

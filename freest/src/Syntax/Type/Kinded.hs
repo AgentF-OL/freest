@@ -52,6 +52,8 @@ module Syntax.Type.Kinded
   , T.isAppQuant
   , T.isAppDName
   , T.fromVariable
+  , T.getRefinement
+  , T.setRefinement
   , kindOf
   , smartApp
   )
