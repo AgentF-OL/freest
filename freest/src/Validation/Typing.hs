@@ -888,7 +888,7 @@ typeModule modl = do
       where
         buildDConsType (ic, (it, ts)) = do
           case M.kindSigs modl Map.!? it of
-            Just (Expose.kindArrow -> (ks,k)) -> do
+            Just k@(Expose.kindArrow -> (ks, _)) -> do
               let (map fst -> as, _) = M.dataDecls modl Map.! it
                   aks = zip as ks
               (Right ic,) . T.AppForall (getSpan ic) aks <$>
