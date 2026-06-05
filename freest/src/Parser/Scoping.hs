@@ -597,7 +597,7 @@ scopePExp :: ScopingCtx -> R.Exp -> Validation (R.Exp, ScopingCtx)
 scopePExp ctx = \case
   R.Var x -> case lookupEVar x ctx of
     Just v -> pure (R.Var x{internal = internal v}, ctx)
-    Nothing -> do insertError (TypeVarOutOfScope (getSpan x) x); return (R.Var x, ctx)
+    Nothing -> do insertError (VarOutOfScope (getSpan x) x); return (R.Var x, ctx)
   R.Const c -> pure (R.Const c, ctx)
   R.Sum e1 e2 -> do
     (e1', ctx') <- scopePExp ctx e1
