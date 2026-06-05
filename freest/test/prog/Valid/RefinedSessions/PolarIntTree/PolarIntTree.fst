@@ -13,6 +13,9 @@ data PolarTree a b =
     Leaf
   | Node (PolarTree a b) a (PolarTree b a)
 
+greaterThanOne : GOne
+greaterThanOne = 2
+
 buildPolarIntTree : PolarTree Pos Neg
 buildPolarIntTree = Node @Pos @Neg left 0 right
   where
@@ -20,12 +23,6 @@ buildPolarIntTree = Node @Pos @Neg left 0 right
     leftRight = Node @Neg @Pos (Node @Neg @Pos (Leaf @Neg @Pos) (-3) (Leaf @Pos @Neg)) (-2) (Leaf @Pos @Neg)
     left = Node @Pos @Neg leftLeft 1 leftRight
     right = Node @Neg @Pos (Leaf @Neg @Pos) (-1) (Leaf @Pos @Neg)
-
-greaterThanOne : GOne
-greaterThanOne = 2
-
-lowerThanOne : LOne
-lowerThanOne = -2
 
 main : ()
 main = buildPolarIntTree; ()
