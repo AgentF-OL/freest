@@ -195,7 +195,8 @@ instance Unparse R.Exp where
     R.Const c -> (maxRator, show c)
     R.Sum e1 e2 -> (sumSubRator, l e1 sumSubRator ++ " + " ++ r e2 sumSubRator)
     R.Sub e1 e2 -> (sumSubRator, l e1 sumSubRator ++ " - " ++ r e2 sumSubRator)
-    R.Prod c e -> (prodDivRator, unparse (R.Const c) ++ " * " ++ r e prodDivRator)
+    R.Prod e1 e2 -> (prodDivRator, l e1 prodDivRator ++ " * " ++ r e2 prodDivRator)
+    R.Neg e -> (notRator, "-" ++ r e notRator)
     R.Cond p e1 e2 -> (maxRator,
       "if "    ++ unparse p  ++
       " then " ++ unparse e1 ++

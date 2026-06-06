@@ -20,6 +20,7 @@ module Parser.Scoping
   ,scopeExp
   ,scopeType
   ,scopeKind
+  ,freshInternal
   )
 where
 
@@ -607,9 +608,13 @@ scopePExp ctx = \case
     (e1', ctx') <- scopePExp ctx e1
     (e2', ctx'') <- scopePExp ctx' e2
     return (R.Sub e1' e2', ctx'')
-  R.Prod c e -> do
+  R.Prod e1 e2 -> do
+    (e1', ctx') <- scopePExp ctx e1
+    (e2', ctx'') <- scopePExp ctx' e2
+    return (R.Prod e1' e2', ctx'')
+  R.Neg e -> do
     (e', ctx') <- scopePExp ctx e
-    return (R.Prod c e', ctx')
+    return (R.Neg e', ctx')
   R.Cond p e1 e2 -> do
     (p', ctx') <- scopePred ctx p
     (e1', ctx'') <- scopePExp ctx' e1

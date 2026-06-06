@@ -392,17 +392,13 @@ PPrimary :: { R.Pred }
 
 PExp :: { R.Exp }
   : ExpVar                             { R.Var $1 }
-  | TypeOrNegType(INT_LIT)             { R.Const $1 }
+  | INT_LIT                            { R.Const $ read $ getText $1 }
   | PExp '+' PExp                      { R.Sum $1 $3 }
   | PExp '-' PExp                      { R.Sub $1 $3 }
-  | TypeOrNegType(INT_LIT) '*' PExp    { R.Prod $1 $3 }
+  | PExp '*' PExp                      { R.Prod $1 $3 }
+  | '-' PExp %prec NEG                 { R.Neg $2 }
   | 'if' Pred 'then' PExp 'else' PExp  { R.Cond $2 $4 $6 }
   | '(' PExp ')'                       { $2 }
-
-TypeOrNegType(t)
-  : t                         { read $ getText $1 }
-  | '-' t %prec NEG           { read $ '-' : (getText $2) }
-  | '(' TypeOrNegType(t) ')'  { $2 }
 
 KindedVarListWS :: { [(Variable, K.Kind)] }
   : {- empty -} { [] }

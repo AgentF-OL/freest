@@ -24,7 +24,8 @@ data Exp
   | Const Int
   | Sum Exp Exp
   | Sub Exp Exp
-  | Prod Int Exp
+  | Prod Exp Exp
+  | Neg Exp
   | Cond Pred Exp Exp
   deriving (Eq, Ord)
 
@@ -55,7 +56,8 @@ instance Show Exp where
     Const c -> show c
     Sum e1 e2 -> "(" ++ show e1 ++ " + " ++ show e2 ++ ")"
     Sub e1 e2 -> "(" ++ show e1 ++ " - " ++ show e2 ++ ")"
-    Prod c e -> "(" ++ show c ++ " * " ++ show e ++ ")"
+    Prod e1 e2 -> "(" ++ show e1 ++ " * " ++ show e2 ++ ")"
+    Neg e -> "-(" ++ show e ++ ")"
     Cond p e1 e2 -> "(if " ++ show p ++ " then " ++ show e1 ++ " else " ++ show e2 ++ ")"
 
 instance Show Cmp where
