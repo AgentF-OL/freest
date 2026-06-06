@@ -27,6 +27,7 @@ import Syntax.Module qualified as M
 import Syntax.Names
 import Syntax.Type.Kinded qualified as T
 import Syntax.Type.Refinement qualified as R
+import Parser.Scoping (freshInternal)
 import UI.Error
 import Utils
 import Validation.Base
@@ -40,7 +41,8 @@ import Validation.Subtyping.Compare ( subtype )
 import Control.Monad
 import Control.Monad.Extra ( ifM, whenM )
 import Control.Monad.State
-import Control.Monad.Trans.Except ( catchE, throwE )
+import Control.Monad.Trans.Except ( catchE, throwE, runExceptT )
+import Control.Monad.Trans.Maybe (exceptToMaybeT, MaybeT (runMaybeT))
 import Data.Bifunctor
 import Data.Foldable ( foldrM )
 import Data.Function ( on )
@@ -261,98 +263,77 @@ synthRHS modl kctx tctx fep = \case
 -- the refined type of an expression, returning 'Just' the type if the syntax of the expression
 -- is translatable to the syntax of the refinements or 'Nothing' otherwise
 synthRefinement :: E.KindedExp -> TypeCtx -> Maybe T.KindedType
-synthRefinement e tctx = fst <$> synthRefinement' e Set.empty tctx
-
-synthRefinement' :: E.KindedExp -> Set.Set Variable -> TypeCtx -> Maybe (T.KindedType, Set.Set Variable)
-synthRefinement' exp vars tctx = let (v, vars') = freshVar vars in case exp of
-  E.Int s x -> pure (T.Int s v (singletonPred v x), vars')
-  E.Var s x -> do
-    t <- tctx Map.!? Left x
-    (tv, tp) <- getPred t
-    let p = predSubs tv v tp
-    newt <- T.setRefinement t v p
-    return (newt, vars')
-  E.App s (E.Var _ op) as -> case external op of
-    "(+)" -> do
-      (v1, p1, vars'') <- getPredInArgs 0 as vars'
-      (v2, p2, vars''') <- getPredInArgs 1 as vars''
-      return (T.Int s v $ dependent2Pred v1 p1 v2 p2 v $ R.Sum (R.Var v1) (R.Var v2), vars''')
-    "(-)" -> case length as of
-      1 -> do
-        (_, p1, vars'') <- getPredInArgs 0 as vars'
-        c <- getConstInPred p1
-        return (T.Int s v $ singletonPred v (-c), vars'')
-      2 -> do
-        (v1, p1, vars'') <- getPredInArgs 0 as vars'
-        (v2, p2, vars''') <- getPredInArgs 1 as vars''
-        return (T.Int s v $ dependent2Pred v1 p1 v2 p2 v $ R.Sub (R.Var v1) (R.Var v2), vars''')
-      _ -> Nothing
-    "(*)" -> do
-      (_, p1, vars'') <- getPredInArgs 0 as vars'
-      c <- getConstInPred p1
-      (v2, p2, vars''') <- getPredInArgs 1 as vars''
-      return (T.Int s v $ dependent1Pred v2 p2 v $ R.Prod c (R.Var v2), vars''')
+synthRefinement exp tctx = do
+  v <- evalState (runMaybeT $ exceptToMaybeT $ freshInternal mkGhostVar) emptyValidationState
+  case exp of
+    E.Int s x -> pure $ T.Int s v $ singletonPred v x
+    E.Var s x -> pure $ tctx Map.! Left x
+    E.App s (E.Var _ (external -> "(+)")) [ExpLevel e1, ExpLevel e2] -> do
+      (v1, p1) <- getPredInExp e1
+      (v2, p2) <- getPredInExp e2
+      return $ T.Int s v $ dependent2Pred v1 p1 v2 p2 v $ R.Sum (R.Var v1) (R.Var v2)
+    E.App s (E.Var _ (external -> "(-)")) [ExpLevel e] -> do
+      (v1, p1) <- getPredInExp e
+      return $ T.Int s v $ negativePred v1 p1 v
+    E.App s (E.Var _ (external -> "(-)")) [ExpLevel e1, ExpLevel e2] -> do
+      (v1, p1) <- getPredInExp e1
+      (v2, p2) <- getPredInExp e2
+      return $ T.Int s v $ dependent2Pred v1 p1 v2 p2 v $ R.Sub (R.Var v1) (R.Var v2)
+    E.App s (E.Var _ (external -> "(*)")) [ExpLevel e1, ExpLevel e2] -> do
+      (v1, p1) <- getPredInExp e1
+      (v2, p2) <- getPredInExp e2
+      return $ T.Int s v $ dependent2Pred v1 p1 v2 p2 v $ R.Prod (R.Var v1) (R.Var v2)
+    E.If s e1 e2 e3 -> do
+      p1 <- synthPred e1 tctx
+      (v2, p2) <- getPredInExp e2
+      (v3, p3) <- getPredInExp e3
+      return $ T.Int s v $ ifPred p1 v2 p2 v3 p3 v
     _ -> Nothing
-  E.If s e1 e2 e3 -> do
-    (p1, vars'') <- synthPred e1 vars' tctx
-    (v2, p2, vars''') <- getPredInExp e2 vars''
-    (v3, p3, vars'''') <- getPredInExp e3 vars'''
-    return (T.Int s v $ ifPred p1 v2 p2 v3 p3 v, vars'''')
-  _ -> Nothing
   where
-    freshVar vars = let v = mkFreshVar nullSpan vars in (v, Set.insert v vars)
     getPred t = do
       (v, _, p) <- T.getRefinement t
       return (v, p)
-    getPredInArgs i as vars = do
-      (ExpLevel e) <- as List.!? i
-      (v, p, vars') <- getPredInExp e vars
-      return (v, p, vars')
     getConstInPred p = case p of
       (R.Cmp (R.Var _) R.E (R.Const c)) -> Just c
       _ -> Nothing
-    getPredInExp e vars = do
-      (t, vars') <- synthRefinement' e vars tctx
+    getPredInExp e = do
+      t <- synthRefinement e tctx
       (v, p) <- getPred t
-      return (v, p, vars')
-    singletonPred v x = R.Cmp (R.Var v) R.E (R.Const x)
-    dependent1Pred v1 p1 v comb = R.Let v1 $ R.And p1 (R.Cmp (R.Var v) R.E comb)
+      return (v, p)
+    singletonPred v x = R.Cmp (R.Var v) R.E $ if x >= 0 then R.Const x else R.Neg $ R.Const x
+    negativePred v1 p1 v = R.Let v1 $ R.And p1 $ R.Cmp (R.Var v) R.E (R.Neg $ R.Var v1)
     dependent2Pred v1 p1 v2 p2 v comb = R.Let v1 $ R.Let v2 $ R.And (R.And p1 p2) (R.Cmp (R.Var v) R.E comb)
     ifPred p1 v2 p2 v3 p3 v = R.Let v2 $ R.Let v3 $ R.And (R.Implies p1 p2) (R.Implies (R.Not p1) p3)
 
-synthPred :: E.KindedExp -> Set.Set Variable -> TypeCtx -> Maybe (R.Pred, Set.Set Variable)
-synthPred e vars tctx = case e of
-  E.DCons _ (Identifier _ id) -> case id of
-    "True" -> Just (R.PTrue, vars)
-    "False" -> Just (R.PFalse, vars)
-    _ -> Nothing
-  E.App s (E.Var _ op) as -> case external op of
-    "(&&)" -> do
-       (_, p1, vars') <- getPredInArgs 0 as vars
-       (_, p2, vars'') <- getPredInArgs 1 as vars'
-       return (R.And p1 p2, vars'')
-    "(||)" -> do
-      (_, p1, vars') <- getPredInArgs 0 as vars
-      (_, p2, vars'') <- getPredInArgs 1 as vars'
-      return (R.Or p1 p2, vars'')
-    "not" -> do
-      (_, p, vars') <- getPredInArgs 0 as vars
-      return (R.Not p, vars')
-    cmp -> do
-      (v1, p1, vars') <- getPredInArgs 0 as vars
-      comp <- synthCMP cmp
-      (v2, p2, vars'') <- getPredInArgs 1 as vars'
-      return (R.Let v1 $ R.Let v2 $ R.And (R.And p1 p2) $ R.Cmp (R.Var v1) comp (R.Var v2), vars'')
+synthPred :: E.KindedExp -> TypeCtx -> Maybe R.Pred
+synthPred e tctx = case e of
+  E.DCons _ (Identifier _ "True") -> Just R.PTrue
+  E.DCons _ (Identifier _ "False") -> Just R.PFalse
+  E.App s (E.Var _ (external -> "(&&)")) [ExpLevel e1, ExpLevel e2] -> do
+    (_, p1) <- getPredInExp e1
+    (_, p2) <- getPredInExp e2
+    return $ R.And p1 p2
+  E.App s (E.Var _ (external -> "(||)")) [ExpLevel e1, ExpLevel e2] -> do
+    (_, p1) <- getPredInExp e1
+    (_, p2) <- getPredInExp e2
+    return $ R.Or p1 p2
+  E.App s (E.Var _ (external -> "not")) [ExpLevel e] -> do
+    (_, p) <- getPredInExp e
+    return $ R.Not p
+  E.App s (E.Var _ (external -> cmp)) [ExpLevel e1, ExpLevel e2] -> do
+    (v1, p1) <- getPredInExp e1
+    comp <- synthCMP cmp
+    (v2, p2) <- getPredInExp e2
+    return $ R.Let v1 $ R.Let v2 $ R.And (R.And p1 p2) $ R.Cmp (R.Var v1) comp (R.Var v2)
   _ -> Nothing
   where
     getPred t = do
       (v, _, p) <- T.getRefinement t
       return (v, p)
-    getPredInArgs i as vars = do
-      (ExpLevel e) <- as List.!? i
-      (t, vars') <- synthRefinement' e vars tctx
+    getPredInExp e = do
+      t <- synthRefinement e tctx
       (v, p) <- getPred t
-      return (v, p, vars')
+      return (v, p)
 
 synthCMP :: String -> Maybe R.Cmp
 synthCMP = \case
@@ -461,7 +442,6 @@ check modl kctx tctx e t = case e of
         (t', tctx'') <- checkArgs modl (E.App (spanFromTo f e') f [ExpLevel e']) kctx tctx' v as'
         checkSubtypeOf modl (Left e) t' t
         return tctx''
-  exp@(E.App s f as) | Just u <- synthRefinement exp tctx -> checkSubtypeOf modl (Left e) u t >> pure tctx
   E.App s f as -> do
     (u, tctx') <- synth modl kctx tctx f
     (v, tctx'') <- checkArgs modl f kctx tctx' u as
