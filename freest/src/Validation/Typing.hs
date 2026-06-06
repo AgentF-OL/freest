@@ -293,16 +293,13 @@ synthRefinement exp tctx = do
     getPred t = do
       (v, _, p) <- T.getRefinement t
       return (v, p)
-    getConstInPred p = case p of
-      (R.Cmp (R.Var _) R.E (R.Const c)) -> Just c
-      _ -> Nothing
     getPredInExp e = do
       t <- synthRefinement e tctx
       (v, p) <- getPred t
       return (v, p)
-    singletonPred v x = R.Cmp (R.Var v) R.E $ if x >= 0 then R.Const x else R.Neg $ R.Const x
-    negativePred v1 p1 v = R.Let v1 $ R.And p1 $ R.Cmp (R.Var v) R.E (R.Neg $ R.Var v1)
-    dependent2Pred v1 p1 v2 p2 v comb = R.Let v1 $ R.Let v2 $ R.And (R.And p1 p2) (R.Cmp (R.Var v) R.E comb)
+    singletonPred v x = R.Cmp (R.Var v) R.Eq $ if x >= 0 then R.Const x else R.Neg $ R.Const x
+    negativePred v1 p1 v = R.Let v1 $ R.And p1 $ R.Cmp (R.Var v) R.Eq (R.Neg $ R.Var v1)
+    dependent2Pred v1 p1 v2 p2 v comb = R.Let v1 $ R.Let v2 $ R.And (R.And p1 p2) (R.Cmp (R.Var v) R.Eq comb)
     ifPred p1 v2 p2 v3 p3 v = R.Let v2 $ R.Let v3 $ R.And (R.Implies p1 p2) (R.Implies (R.Not p1) p3)
 
 synthPred :: E.KindedExp -> TypeCtx -> Maybe R.Pred
@@ -337,11 +334,11 @@ synthPred e tctx = case e of
 
 synthCMP :: String -> Maybe R.Cmp
 synthCMP = \case
-  "(<)" -> Just R.L
-  "(<=)" -> Just R.LE
-  "(==)" -> Just R.E
-  "(>=)" -> Just R.GE
-  "(>)" -> Just R.G
+  "(<)" -> Just R.Lt
+  "(<=)" -> Just R.Le
+  "(==)" -> Just R.Eq
+  "(>=)" -> Just R.Ge
+  "(>)" -> Just R.Gt
   "(/=)" -> Just R.Diff
   _ -> Nothing
 

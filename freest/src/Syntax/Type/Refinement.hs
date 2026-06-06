@@ -30,11 +30,11 @@ data Exp
   deriving (Eq, Ord)
 
 data Cmp
-  = L
-  | LE
-  | E
-  | GE
-  | G
+  = Lt
+  | Le
+  | Eq
+  | Ge
+  | Gt
   | Diff
   deriving (Eq, Ord)
 
@@ -62,9 +62,9 @@ instance Show Exp where
 
 instance Show Cmp where
   show = \case
-    L -> "<"
-    LE -> "<="
-    E -> "=="
-    GE -> ">="
-    G -> ">"
+    Lt -> "<"
+    Le -> "<="
+    Eq -> "=="
+    Ge -> ">="
+    Gt -> ">"
     Diff -> "/="

@@ -207,9 +207,9 @@ instance Unparse R.Exp where
 
 instance Unparse R.Cmp where
   fragment = \case
-    R.L -> (maxRator, "<")
-    R.LE -> (maxRator, "<=")
-    R.E -> (maxRator, "==")
-    R.GE -> (maxRator, ">=")
-    R.G -> (maxRator, ">")
+    R.Lt -> (maxRator, "<")
+    R.Le -> (maxRator, "<=")
+    R.Eq -> (maxRator, "==")
+    R.Ge -> (maxRator, ">=")
+    R.Gt -> (maxRator, ">")
     R.Diff -> (maxRator, "/=")

@@ -701,11 +701,11 @@ fromBoolLit tk = do
 
 fromCMPPred :: R.Exp -> Token -> R.Exp -> Lexer R.Pred
 fromCMPPred e1 tk e2 = case (getText tk) of
-  "<" -> pure $ R.Cmp e1 R.L e2
-  "<=" -> pure $ R.Cmp e1 R.LE e2
-  "==" -> pure $ R.Cmp e1 R.E e2
-  ">=" -> pure $ R.Cmp e1 R.GE e2
-  ">" -> pure $ R.Cmp e1 R.G e2
+  "<" -> pure $ R.Cmp e1 R.Lt e2
+  "<=" -> pure $ R.Cmp e1 R.Le e2
+  "==" -> pure $ R.Cmp e1 R.Eq e2
+  ">=" -> pure $ R.Cmp e1 R.Ge e2
+  ">" -> pure $ R.Cmp e1 R.Gt e2
   "/=" -> pure $ R.Cmp e1 R.Diff e2
   _ -> parseError (tk, ["<", "<=", "==", ">=", ">", "/="])
 
