@@ -172,7 +172,7 @@ instance Unparse (T.Type x) where
         T.Out -> "+"
       refinement typ v p = case p of
          R.PTrue -> typ
-         _ -> "{" ++ unparse v ++ ": " ++ typ ++ " | " ++ unparse p ++ "}"
+         _ -> "{" ++ show v ++ ": " ++ typ ++ " | " ++ unparse p ++ "}"
 
 instance Unparse R.Pred where
   fragment = \case
@@ -182,7 +182,7 @@ instance Unparse R.Pred where
     R.Implies p1 p2 -> (impliesRator, l p1 impliesRator ++ " => " ++ r p2 impliesRator)
     R.Iff p1 p2 -> (iffRator, l p1 iffRator ++ " <=> " ++ r p2 iffRator)
     R.Not p -> (notRator, "not " ++ r p notRator)
-    R.Let v p -> (elseRator, "let " ++ unparse v ++ " in " ++ unparse p)
+    R.Let v p -> (elseRator, "let " ++ show v ++ " in " ++ unparse p)
     R.PTrue -> (maxRator, "True")
     R.PFalse -> (maxRator, "False")
     where
@@ -191,7 +191,7 @@ instance Unparse R.Pred where
 
 instance Unparse R.Exp where
   fragment = \case
-    R.Var x -> (maxRator, unparse x)
+    R.Var x -> (maxRator, show x)
     R.Const c -> (maxRator, show c)
     R.Sum e1 e2 -> (sumSubRator, l e1 sumSubRator ++ " + " ++ r e2 sumSubRator)
     R.Sub e1 e2 -> (sumSubRator, l e1 sumSubRator ++ " - " ++ r e2 sumSubRator)
