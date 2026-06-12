@@ -25,8 +25,8 @@ import Data.Bitraversable (bimapM)
 
 fromTypes :: M.KindedModule -> [T.KindedType] -> (Productions, [Word])
 fromTypes mod ts =
-  -- trace ("\n\nTypes:   " ++ show ts ++
-  --        "\n"++showGrammar (xss, productions s)) $
+  --trace ("\n\nTypes:   " ++ show ts ++
+  --      "\n"++showGrammar (productions s, xss))
   (productions s, xss)
   where
     (xss, s) = runState (mapM (word Map.empty) ts) (initial mod)
@@ -45,7 +45,10 @@ word' ctx = \case
   -- W-EndVoid (2/2)
   t@T.Void{} -> getNonterminal $ Map.singleton (Default $ show t) [bottom]
   -- Int, Float, Char, Variant types
-  T.Int _ _ p -> getNonterminal $ Map.singleton (Refinement p) []
+  T.Int _ v p -> getNonterminal $ Map.fromList [
+      (Default "Int", []),
+      (Refinement v p, [])
+    ]
   t@T.Float{} -> getNonterminal $ Map.singleton (Default $ show t) []
   t@T.Char{} -> getNonterminal $ Map.singleton (Default $ show t) []
   t@T.DName{} -> getNonterminal $ Map.singleton (Default $ show t) []
@@ -207,7 +210,7 @@ getNonterminal ts = do
     -- | Lookup a key for a value in the map. Probably O(n).
     reverseLookup :: Eq a => Ord k => a -> Map.Map k a -> Maybe k
     reverseLookup a =
-      Map.foldrWithKey (\k b acc -> if a == b then Just k else acc) Nothing
+      Map.foldrWithKey (\k b acc -> if b == a then Just k else acc) Nothing
 
 -- | Fat terminal types can be compared for syntactic equality.
 fatTerminal :: T.KindedType -> Maybe T.KindedType

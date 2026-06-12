@@ -15,9 +15,10 @@ non-terminals to a map from terminals to words.
 
 -}
 module Validation.Subtyping.Grammar 
-  ( Terminal(..)
+  ( Terminal(..), sameLabel
   , Nonterminal
   , Word, emptyWord
+  , LabelSet(..)
   , Transitions, emptyTransitions
   , Productions, emptyProductions
                , insertProduction
@@ -34,29 +35,33 @@ import Prelude hiding (Word)
 import Data.Map qualified as Map
 import Data.Maybe qualified as Maybe
 import Data.Set qualified as Set
+import Syntax.Base (Variable)
 import qualified Syntax.Type.Kinded as T
 import qualified Syntax.Type.Refinement as R
 import Parser.Unparser (unparse)
 import Validation.Subtyping.SMTSolver (predImplies)
 
 -- Terminal symbols in the grammar
-data Terminal = Default String | Arrow1 | Bang1 | Refinement R.Pred
-  deriving Ord
-
-instance Eq Terminal where
-  t == u = case (t, u) of
-    (Default t1, Default t2) -> t1 == t2
-    (Arrow1, Arrow1) -> True
-    (Bang1, Bang1) -> True
-    (Refinement p1, Refinement p2) -> p1 `predImplies` p2
-    _ -> False
+data Terminal = Default String | Arrow1 | Bang1 | Refinement Variable R.Pred
+  deriving (Eq, Ord)
 
 instance Show Terminal where
   show = \case
     Default s    -> s
     Arrow1       -> "(->)1"
     Bang1        -> "(!)1"
-    Refinement p -> unparse p
+    Refinement v p -> show v ++ ": Int | " ++ unparse p
+
+data LabelSet = X | Y | Z | W deriving (Eq, Ord, Show)
+
+sameLabel :: Terminal -> Terminal -> LabelSet -> Bool
+sameLabel t1 t2 l = case (t1, t2, l) of
+  (Default t, Default u, _) -> t == u
+  (Arrow1, Arrow1, _) -> True
+  (Bang1, Bang1, _) -> True
+  (Refinement v1 p1, Refinement v2 p2, X) -> predImplies v1 p1 v2 p2
+  (Refinement v1 p1, Refinement v2 p2, _) -> True
+  _ -> False
 
 -- Non-terminal symbols in the grammar
 type Nonterminal = Int
