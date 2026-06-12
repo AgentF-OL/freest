@@ -109,6 +109,7 @@ predExpFreeVars' vars = \case
   R.Sum e1 e2 -> Set.unions [vars, predExpFreeVars e1, predExpFreeVars e2]
   R.Sub e1 e2 -> Set.unions [vars, predExpFreeVars e1, predExpFreeVars e2]
   R.Prod _ e -> Set.unions [vars, predExpFreeVars e]
+  R.Neg e -> Set.unions [vars, predExpFreeVars e]
   R.Cond e1 e2 e3 -> Set.unions [vars, predFreeVars e1, predExpFreeVars e2, predExpFreeVars e3]
 
 -- | Predicate substitution.
@@ -139,4 +140,5 @@ predExpSubs v1 v2 = \case
   R.Sum e1 e2 -> R.Sum (predExpSubs v1 v2 e1) (predExpSubs v1 v2 e2)
   R.Sub e1 e2 -> R.Sub (predExpSubs v1 v2 e1) (predExpSubs v1 v2 e2)
   R.Prod c e -> R.Prod c (predExpSubs v1 v2 e)
+  R.Neg e -> R.Neg (predExpSubs v1 v2 e)
   R.Cond p e1 e2 -> R.Cond (predSubs v1 v2 p) (predExpSubs v1 v2 e1) (predExpSubs v1 v2 e2)
