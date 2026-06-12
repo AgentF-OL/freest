@@ -285,7 +285,7 @@ ProperKind :: { K.Kind }
 
 TypePrimary :: { T.ParsedType }
   -- Builtins (necessary?)
-  : 'Int'    { T.Int   (getSpan $1) Variable{internal = -2} R.PTrue }
+  : 'Int'    { T.Int   (getSpan $1) mkGhostVar R.PTrue }
   | 'Float'  { T.Float (getSpan $1)             }
   | 'Char'   { T.Char  (getSpan $1)             }
   | 'Skip'   { T.Skip  (getSpan $1)             }
