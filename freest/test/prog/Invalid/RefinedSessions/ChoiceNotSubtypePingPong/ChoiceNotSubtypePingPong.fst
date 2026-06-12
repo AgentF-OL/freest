@@ -7,7 +7,7 @@ ThinPingPongServer <: PingPongServer
 -}
 
 type PingPongServer, PingPongClient, ThinPingPongServer, ThinPingPongClient : 1C
-type Ping, Pong, ThinPing, Nat : *T
+type Ping, Pong, ThinPing : *T
 
 type PingPongServer = &{Send: ?Ping ; !Pong ; PingPongServer, Stop: Wait}
 type PingPongClient = Dual PingPongServer
@@ -17,7 +17,6 @@ type ThinPingPongClient = Dual ThinPingPongServer
 type Ping = {ping: Int | 0 <= ping && ping < 10}
 type Pong = {pong: Int | -10 < pong && pong <= 0}
 type ThinPing = {ping: Int | 3 <= ping && ping < 7}
-type Nat = {n: Int | n >= 0}
 
 pong : Pong
 pong = -3
@@ -31,7 +30,7 @@ runServer c =
       runServer c
     &Stop c -> wait c
 
-runClient : Nat -> ThinPingPongClient -> ()
+runClient : Int -> ThinPingPongClient -> ()
 runClient n_pings c =
   if n_pings == 0
   then c |> select Stop |> close
@@ -41,7 +40,7 @@ runClient n_pings c =
     let (pong, c) = receive c in
     runClient (n_pings - 1) c 
 
-start : Nat -> (PingPongServer -> ()) -> ()
+start : Int -> (PingPongServer -> ()) -> ()
 start n_pings server =
   let (c, s) = channel @ThinPingPongClient in
   fork (\(_ : ()) 1-> server s);

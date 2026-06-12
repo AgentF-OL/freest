@@ -17,7 +17,7 @@ DistanceThree <: DistanceFive
 type DistanceFive, DistanceThree, DistanceFiveTripled : *T
 
 type DistanceFive = -- between -5 and 5 ...
-  {x: Int | 0 <= (if (if x < 0 then -1 * x else x) > 0 then -1 * x else x) && 2 * (if x < 0 then -1 * x else x) + 1 <= 11}
+  {x: Int | -5 <= (if (if x < 0 then -1 * x else x) > 0 then x else -1 * x) && 2 * (if x < 0 then -1 * x else x) + 1 <= 11}
 
 type DistanceFiveTripled = -- between -15 and 15 ...
   {y: Int | (y < 0 => 0 <= -1 * y && -1 * y <= 15) && (y >= 0 => 0 <= y && y <= 15)}

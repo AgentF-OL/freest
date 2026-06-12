@@ -12,7 +12,7 @@ case {b: Int | b == 4 || b == 2} <: {a: Int | a == 4} : *T
 
 case {b: Int | -10 < b && b < 10} <: {a: Int | -5 < a && a < 5} : *T
 
-case {b: Int | 2 * b < 0} <: {a: Int | not (2 * a >= 5)} : *T
+case {b: Int | 2 * b < 5} <: {a: Int | not (2 * a >= 0)} : *T
 
 case {b: Int | b + 101 /= 1} <: {a: Int | -100 < a && a < 100} : *T
 
@@ -73,6 +73,10 @@ where
   type B = {b: Int | b > 7}
   type C = {c: Int | c > 0}
   type D = {d: Int | d > 2}
+
+case Skip <: {a: Int | a > 0} : *T
+
+case {a: Int | a > 0} <: Skip : *T
 
 -- from Subtyping context-free session types by Silva et al., (2026)
 -- https://www.sciencedirect.com/science/article/pii/S0304397525006425
@@ -313,24 +317,6 @@ where -- S <: Choice (with ; R at the end of each label in SimpleChoice)
       A: R1 ; R,  -- X
       B: R2
     }
-
--- S-EndSeq (Close) X
-case End ; R <: End ; S : 1C
-where
-  type End : 1C
-  type S, R : 1S
-  type End = Close
-  type S = ?{s: Int | s > 0}
-  type R = ?{r: Int | r > 1}
-
--- S-EndSeq (Wait) X
-case End ; R <: End ; S : 1C
-where
-  type End : 1C
-  type S, R : 1S
-  type End = Wait
-  type S = ?{s: Int | s > 0}
-  type R = ?{r: Int | r > 1}
 
 -- S-SkipSeqL X
 case Skip ; R <: S : 1S

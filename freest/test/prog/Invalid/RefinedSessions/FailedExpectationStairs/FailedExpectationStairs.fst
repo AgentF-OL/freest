@@ -4,7 +4,7 @@ type BiggerThanZero, BiggerThanOne, BiggerThanZero2, FourOrTwo, Four : *T
 
 type BiggerThanZero  = {n: Int | n > 0}
 type BiggerThanOne   = {n: Int | n > 1}
-type BiggerThanZero2 = {n: Int | (if n == 1 then 2 else n) > 1} -- X
+type BiggerThanZero2 = {n: Int | (if n == 4 || n == 2 then 0 else n) > 1} -- X
 type FourOrTwo       = {n: Int | n == 4 || n == 2}
 type Four            = {n: Int | n == 4}
 

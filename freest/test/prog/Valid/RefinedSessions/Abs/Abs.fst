@@ -8,10 +8,10 @@ type Nat = {n: Int | n >= 0}
 type AbsServer = ?AnyInt ; !Nat ; Wait
 type AbsClient = Dual AbsServer
 
-absolute' : AnyInt -> Nat -- let's pretend this is correctly implemented
-absolute' x
-  | x < 0 = -x
-  | otherwise = x
+--absolute' : AnyInt -> Nat -- let's pretend this is correctly implemented
+--absolute' x
+--  | x < 0 = -x
+--  | otherwise = x
 
 absolute : AnyInt -> Nat -- let's pretend this is correctly implemented
 absolute x =

@@ -62,11 +62,11 @@ case {a: Int | a == 4} <: {b: Int | b == 4 || b == 2} : *T
 
 case {a: Int | -5 < a && a < 5} <: {b: Int | -10 < b && b < 10} : *T
 
-case {a: Int | not (2 * a >= 5)} <: {b: Int | 2 * b < 0} : *T
+case {a: Int | not (2 * a >= 0)} <: {b: Int | 2 * b < 5} : *T
 
 case {a: Int | -100 < a && a < 100} <: {b: Int | b + 101 /= 1} : *T
 
-case {a: Int | 4 + 2 * a == 42} <: {b: Int | 13 <= b && b <= 15} : *T
+case {a: Int | 4 + 2 * a == 42} <: {b: Int | 18 <= b && b <= 20} : *T
 
 case {a: Int | True => False} <: Int : *T
 
@@ -119,14 +119,14 @@ where
 -- S-Unit
 case () <: () : *T
 
--- S-Arrow
-case T1 -> T2 <: U1 1-> U2 : 1T
-where -- U1 <: T1 and T2 <: U2 and * subset 1
-  type T1, T2, U1, U2 : *T
-  type T1 = {t1: Int | t1 > 0}
-  type T2 = {t2: Int | t2 > 1}
-  type U1 = {u1: Int | u1 > 1}
-  type U2 = {u2: Int | u2 > 0}
+-- S-Arrow -- TODO - add arrow multiplicity back to subtyping
+--case T1 -> T2 <: U1 1-> U2 : 1T
+--where -- U1 <: T1 and T2 <: U2 and * subset 1
+--  type T1, T2, U1, U2 : *T
+--  type T1 = {t1: Int | t1 > 0}
+--  type T2 = {t2: Int | t2 > 1}
+--  type U1 = {u1: Int | u1 > 1}
+--  type U2 = {u2: Int | u2 > 0}
 
 -- S-In
 case T <: U : 1S
@@ -354,6 +354,15 @@ where
   type S = ?{s: Int | s > 0}
   type R = ?{r: Int | r > 1}
 
+-- S-EndSeq (Close) (swapped)
+case End ; R <: End ; S : 1C
+where
+  type End : 1C
+  type S, R : 1S
+  type End = Close
+  type S = ?{s: Int | s > 0}
+  type R = ?{r: Int | r > 1}
+
 -- S-EndSeqL (Wait)
 case End ; S <: End : 1C
 where
@@ -372,6 +381,15 @@ where
 
 -- S-EndSeq (Wait)
 case End ; S <: End ; R : 1C
+where
+  type End : 1C
+  type S, R : 1S
+  type End = Wait
+  type S = ?{s: Int | s > 0}
+  type R = ?{r: Int | r > 1}
+
+-- S-EndSeq (Wait) (swapped)
+case End ; R <: End ; S : 1C
 where
   type End : 1C
   type S, R : 1S

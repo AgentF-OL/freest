@@ -16,7 +16,7 @@ where
 
 type DistanceFive, DistanceThree, DistanceFiveTripled : *T
 
-type DistanceFive = -- between 0 (should be -5) and 5 -- inner if has wrong condition
+type DistanceFive = -- between 0 (should be -5) and 5
   {x: Int | 0 <= (if (if x > 0 then -1 * x else x) > 0 then -1 * x else x) && 2 * (if x < 0 then -1 * x else x) + 1 <= 11}
 
 type DistanceFiveTripled = -- between -15 and 15 ...

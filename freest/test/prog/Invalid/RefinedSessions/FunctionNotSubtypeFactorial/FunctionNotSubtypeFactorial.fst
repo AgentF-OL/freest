@@ -32,17 +32,23 @@ type FactMainServer =        ?Int ; !Nat ; Wait
 type FactMainClient = Dual FactServer     -- !Nat ; ?Int ; Close
 type FactClient     = Dual FactMainServer -- !Int ; ?Nat ; Close
 
+absolute : Int -> Nat -- let's pretend this is correctly implemented
+absolute x =
+  if x < 0
+  then -x
+  else x
+
 factorial' : Int -> Nat
 factorial' n
   | n <= 0 = 0
   | n == 0 = 1
-  | otherwise = n * factorial' (n - 1)
+  | otherwise = n * (n - 1)
 
 factorial : Int -> Nat
 factorial n =
   if n <= 0 then 0
   else if n == 0 then 1
-  else n * factorial (n - 1)
+  else n * (n - 1)
 
 factServer : FactMainServer -> ()
 factServer c =
@@ -50,8 +56,10 @@ factServer c =
   c |> send (factorial n) |> wait
 
 factClient : Int -> FactClient -> Nat
-factClient n c = c |> send n
-                   |> receiveAndClose @Nat
+factClient n c =
+  let c = send (absolute n) c in
+  let (x, c) = receive c in
+  close c; absolute x
 
 startClient : Nat -> (Nat -> FactMainClient -> Int) -> Int
 startClient n client =
