@@ -64,6 +64,7 @@ data Error
   | MultipleTypeDecls Span [Identifier]
   | MultipleVarDecls Span [Variable]
   | NonLinPat Span E.Pat TK.KindedType
+  | NotARefinedType
   | ParseError Span (Token, [String])
   | PartiallyAppliedSelect Span Identifier
   | PrekindMismatch Span K.Prekind TK.KindedType K.Kind

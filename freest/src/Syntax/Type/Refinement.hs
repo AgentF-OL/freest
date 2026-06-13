@@ -2,6 +2,9 @@ module Syntax.Type.Refinement
   ( Pred(..)
   , Exp(..)
   , Cmp(..)
+  , Payload
+  , pAll
+  , pAny
   )
 where
 
@@ -38,6 +41,8 @@ data Cmp
   | Diff
   deriving (Eq, Ord)
 
+type Payload = [Pred]
+
 instance Show Pred where
   show = \case
     Cmp e1 cmp e2 -> "(" ++ show e1 ++ " " ++ show cmp ++ " " ++ show e2 ++ ")"
@@ -68,3 +73,13 @@ instance Show Cmp where
     Ge -> ">="
     Gt -> ">"
     Diff -> "/="
+
+pAll :: [Pred] -> Pred
+pAll [] = PTrue
+pAll [p] = p
+pAll (p:preds) = And p $ pAll preds
+
+pAny :: [Pred] -> Pred
+pAny [] = PTrue
+pAny [p] = p
+pAny (p:preds) = Or p $ pAny preds

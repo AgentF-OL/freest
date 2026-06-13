@@ -41,8 +41,7 @@ import Validation.Subtyping.Compare ( subtype )
 import Control.Monad
 import Control.Monad.Extra ( ifM, whenM )
 import Control.Monad.State
-import Control.Monad.Trans.Except ( catchE, throwE, runExceptT )
-import Control.Monad.Trans.Maybe (exceptToMaybeT, MaybeT (runMaybeT))
+import Control.Monad.Trans.Except ( throwE, catchE )
 import Data.Bifunctor
 import Data.Foldable ( foldrM )
 import Data.Function ( on )
@@ -51,7 +50,6 @@ import Data.List qualified as List
 import Data.List.Extra qualified as List
 import Data.Set qualified as Set
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromJust)
 
 
 -- The type context. It keeps track of the variables and constructors in scope
@@ -99,138 +97,145 @@ typeCtxDifference kctx tctx1 tctx2 = do
 -- without the linear variables consumed in it.
 synth :: M.KindedModule -> KindCtx -> TypeCtx -> E.KindedExp
       -> Validation (T.KindedType, TypeCtx)
-synth modl kctx tctx = \case
-  e@(E.Int s x) -> pure (fromJust $ synthRefinement e tctx, tctx)
-  E.Float s _   -> pure (T.Float s                        , tctx)
-  E.Char s _    -> pure (T.Char s                         , tctx)
-  -- Tuples, (e1 ... , en)
-  E.Tuple s es -> do
-    first (T.Tuple s) <$>
-      foldM (\(ts, tctx') e -> first (List.snoc ts) <$> synth modl kctx tctx' e)
-            ([], tctx) es
-  -- Nil, [] @a
-  E.Nil s t -> do
-    Kinding.checkProperK t
-    pure (T.List s t, tctx)
-  -- Cons, (::) @a e1 e2
-  E.Cons s e1 e2 -> do
-    (t', tctx') <- synth modl kctx tctx e1
-    let t = T.List s t'
-    (t,) <$> check modl kctx tctx' e2 t
-  E.DCons s i     -> lookupType kctx tctx (Right i)
-  E.Var s x       -> lookupType kctx tctx (Left  x)
-  -- send e1 e2
-  E.App s (E.Var s' x) [ExpLevel e1, ExpLevel e2] | external x == "send" -> do  -- TODO: remove magic constants (and refactor Syntax.Names).
-    (t, tctx') <- synth modl kctx tctx e2                                            -- (or not, since these cases are temporary...)
-    (t1, t2) <- Expose.output modl e2 t
-    (t2,) <$> check modl kctx tctx' e1 t1
-  -- receive e
-  E.App s (E.Var s' x) [ExpLevel e] | external x == "receive" -> do
-    (t, tctx') <- synth modl kctx tctx e
-    (t1, t2) <- Expose.input modl (Right e) t
-    return (T.Tuple s [t1,t2], tctx')
-  -- fork e
-  E.App s (E.Var s' x) [ExpLevel e] | external x == "fork" -> do
-    (t, tctx') <- synth modl kctx tctx e
-    (m, t1, t2) <- Expose.arrow modl e t
-    Kinding.checkK t2 (K.ut (getSpan e)) -- used to be checkSubkindOf
-    checkSubtypeOf modl (Left e)
-      (T.AppArrow (getSpan e) m t1 t2)
-      (T.AppArrow (getSpan e) K.Lin (T.DName s (K.ut s) (mkUnitId s)) t2)
-    return (T.DName s (K.ut s) (mkUnitId s), tctx')
-  -- select l e1 ... en
-  E.App s f@(E.Select s' i) as ->
-    case as of
-      [] -> throwE (CannotSynthesiseSelect s' i)
-      (TypeLevel t : _  ) ->
-        throwE (UnexpectedArg (getSpan t) 1 (ExpLevel Nothing) (TypeLevel t))
-      (ExpLevel  e : as') -> do
-        (u, tctx') <- synth modl kctx tctx e
-        ui <- Expose.internalChoice modl e u i
-        checkArgs modl (E.App s f [ExpLevel e]) kctx tctx' ui as'
-  E.App s f@(E.SendType s' t) as -> -- TODO: avoid this duplication. find a way to deal with select, sendType and receiveType
-    case as of
-      [] -> throwE (CannotSynthesiseSendType s)
-      (TypeLevel u : _) ->
-        throwE (UnexpectedArg (getSpan u) 1 (ExpLevel Nothing) (TypeLevel t))
-      (ExpLevel e : as') -> do
-        (u, tctx') <- synth modl kctx tctx e
-        (a, _, u') <- Expose.typeOutput modl e u
-        checkArgs modl (E.App s f [ExpLevel e]) kctx tctx' (subs a t u') as'
-  E.App s f@(E.ReceiveType s') as ->
-    case as of
-      [] -> throwE (CannotSynthesiseReceiveType s)
-      (TypeLevel t : _) ->
-        throwE (UnexpectedArg (getSpan t) 1 (ExpLevel Nothing) (TypeLevel t))
-      (ExpLevel e : as') -> do
-        (u, tctx') <- synth modl kctx tctx e
-        (a, k, u') <- Expose.typeInput modl (Right e) u
-        let v = T.AppExists (spanFromTo f e) [(a, k)] u'
-        checkArgs modl (E.App s f [ExpLevel e]) kctx tctx' v as'
-  e@(E.App s f as) | Just t <- synthRefinement e tctx -> pure (t, tctx)
-  E.App s f as    -> do
-    (t, tctx') <- synth modl kctx tctx f
-    t' <- Expose.function modl f t
-    checkArgs modl f kctx tctx' t' as
-  e@(E.Abs s ps m e') -> synthAbs kctx tctx ps
-    where
-      synthAbs kctxi tctxi = \case
-        [] -> synth modl kctxi tctxi e'
-        ExpLevel (pi, ti) : ps' -> do
-          Kinding.checkProperK ti
-          (kctxi', tctxp) <- checkPat modl kctxi pi ti
-          (ti', tctxi') <- synthAbs kctxi' (Map.union tctxp tctxi) ps'
-          tctxi'' <- typeCtxDifference kctxi' tctxi' tctxp
-          when (m == K.Un) do checkEquivTypeCtxsUnFun tctxi'' tctxi (Right e)
-          return (T.AppArrow (spanFromTo pi e') m ti ti', tctxi'')
-        TypeLevel (ai, ki) : ps' -> do
-          (ti', tctxi') <- synthAbs (Map.insert ai ki kctxi) tctxi ps'
-          let ti'' = case ti' of
-                T.AppForall s aks ti' ->
-                  T.AppForall (spanFromTo ai e') ((ai,ki) : aks) ti'
-                ti' ->
-                  T.AppForall (spanFromTo ai e') [(ai, ki)] ti'
-          return (ti'', tctxi')
-  e@(E.Pack s ts e') -> throwE (CannotSynthesisePack s e)
-  E.Asc _ e t -> (t,) <$> check modl kctx tctx e t
-  E.Let s ds e    -> do
-    (tctxds, kctx', tctx') <- checkDecls modl kctx tctx ds
-    (t, tctxe) <- synth modl kctx' tctx' e
-    (t,) <$> typeCtxDifference kctx' tctxe tctxds
-  e@(E.Semi s e1 e2) -> do
-    (t, tctx') <- synth modl kctx tctx e1
-    when (Kinding.isStrictlyLin t) do
-      throwE (KindMismatch s (K.ut se1) t)
-    synth modl kctx tctx' e2
-    where se1 = getSpan e1
-  E.Case s e cs@((p1, rhs1) : cs')   -> do
-    -- TODO: detect redundant and incomplete patterns
-    (t, tctx') <- synth modl kctx tctx e
-    (kctxp1, tctxp1) <- checkPat modl kctx p1 t
-    (t1, tctxrhs1) <- synthRHS modl kctxp1 (tctxp1 `Map.union` tctx') (Right e) rhs1
-    tctx1 <- typeCtxDifference kctxp1 tctxrhs1 tctxp1
-    tctxis <- forM cs' \(pi, rhsi) -> do
-      (kctxpi, tctxpi) <- checkPat modl kctx pi t
-      tctxrhsi <- checkRHS modl kctxpi (tctxpi `Map.union` tctx') (Right e) rhsi t1
-      typeCtxDifference kctxpi tctxrhsi tctxpi
-    checkEquivTypeCtxs (Right e) (tctx1 : tctxis)
-    return (t1, tctx1)
-  e@(E.If s e1 e2 e3) | Just t <- synthRefinement e tctx -> pure (t, tctx)
-  e@(E.If s e1 e2 e3) -> do
-    tctx1 <- check modl kctx tctx e1 (T.Bool (getSpan e1))
-    (t2, tctx2) <- synth modl kctx tctx1 e2
-    tctx3 <- check modl kctx tctx1 e2 t2
-    checkEquivTypeCtxs (Right e) [tctx2, tctx3]
-    return (t2, tctx2)
-  E.Channel s t -> do
-    Kinding.checkChannel t
-    pure (T.Tuple s [t, T.AppDual s t], tctx)
-  E.Select s i -> do
-    throwE (CannotSynthesiseSelect s i)
-  E.SendType s t -> do
-    throwE (CannotSynthesiseSendType s)
-  E.ReceiveType s -> do
-    throwE (CannotSynthesiseReceiveType s)
+synth modl kctx tctx e = catchE
+  (do -- try to synth as a refined type
+    (tp, tctx', payload) <- synthRefinement modl kctx tctx e
+    case tp of
+      Left p -> throwE NotARefinedType
+      Right t -> do
+        (v, p) <- getPred t
+        return (T.Int (getSpan e) v $ R.And (R.pAll payload) p, tctx')
+  ) \error -> case error of
+    NotARefinedType -> case e of
+      E.Float s _ -> pure (T.Float s, tctx)
+      E.Char s _ -> pure (T.Char s, tctx)
+      -- Tuples, (e1 ... , en)
+      E.Tuple s es -> do
+        first (T.Tuple s) <$>
+          foldM (\(ts, tctx') e -> first (List.snoc ts) <$> synth modl kctx tctx' e)
+                ([], tctx) es
+      -- Nil, [] @a
+      E.Nil s t -> do
+        Kinding.checkProperK t
+        pure (T.List s t, tctx)
+      -- Cons, (::) @a e1 e2
+      E.Cons s e1 e2 -> do
+        (t', tctx') <- synth modl kctx tctx e1
+        let t = T.List s t'
+        (t,) <$> check modl kctx tctx' e2 t
+      E.DCons s i     -> lookupType kctx tctx (Right i)
+      E.Var s x       -> lookupType kctx tctx (Left  x)
+      -- send e1 e2
+      E.App s (E.Var s' x) [ExpLevel e1, ExpLevel e2] | external x == "send" -> do  -- TODO: remove magic constants (and refactor Syntax.Names).
+        (t, tctx') <- synth modl kctx tctx e2                                            -- (or not, since these cases are temporary...)
+        (t1, t2) <- Expose.output modl e2 t
+        (t2,) <$> check modl kctx tctx' e1 t1
+      -- receive e
+      E.App s (E.Var s' x) [ExpLevel e] | external x == "receive" -> do
+        (t, tctx') <- synth modl kctx tctx e
+        (t1, t2) <- Expose.input modl (Right e) t
+        return (T.Tuple s [t1,t2], tctx')
+      -- fork e
+      E.App s (E.Var s' x) [ExpLevel e] | external x == "fork" -> do
+        (t, tctx') <- synth modl kctx tctx e
+        (m, t1, t2) <- Expose.arrow modl e t
+        Kinding.checkK t2 (K.ut (getSpan e)) -- used to be checkSubkindOf
+        checkSubtypeOf modl (Left e)
+          (T.AppArrow (getSpan e) m t1 t2)
+          (T.AppArrow (getSpan e) K.Lin (T.DName s (K.ut s) (mkUnitId s)) t2)
+        return (T.DName s (K.ut s) (mkUnitId s), tctx')
+      -- select l e1 ... en
+      E.App s f@(E.Select s' i) as ->
+        case as of
+          [] -> throwE (CannotSynthesiseSelect s' i)
+          (TypeLevel t : _  ) ->
+            throwE (UnexpectedArg (getSpan t) 1 (ExpLevel Nothing) (TypeLevel t))
+          (ExpLevel  e : as') -> do
+            (u, tctx') <- synth modl kctx tctx e
+            ui <- Expose.internalChoice modl e u i
+            checkArgs modl (E.App s f [ExpLevel e]) kctx tctx' ui as'
+      E.App s f@(E.SendType s' t) as -> -- TODO: avoid this duplication. find a way to deal with select, sendType and receiveType
+        case as of
+          [] -> throwE (CannotSynthesiseSendType s)
+          (TypeLevel u : _) ->
+            throwE (UnexpectedArg (getSpan u) 1 (ExpLevel Nothing) (TypeLevel t))
+          (ExpLevel e : as') -> do
+            (u, tctx') <- synth modl kctx tctx e
+            (a, _, u') <- Expose.typeOutput modl e u
+            checkArgs modl (E.App s f [ExpLevel e]) kctx tctx' (subs a t u') as'
+      E.App s f@(E.ReceiveType s') as ->
+        case as of
+          [] -> throwE (CannotSynthesiseReceiveType s)
+          (TypeLevel t : _) ->
+            throwE (UnexpectedArg (getSpan t) 1 (ExpLevel Nothing) (TypeLevel t))
+          (ExpLevel e : as') -> do
+            (u, tctx') <- synth modl kctx tctx e
+            (a, k, u') <- Expose.typeInput modl (Right e) u
+            let v = T.AppExists (spanFromTo f e) [(a, k)] u'
+            checkArgs modl (E.App s f [ExpLevel e]) kctx tctx' v as'
+      E.App s f as    -> do
+        (t, tctx') <- synth modl kctx tctx f
+        t' <- Expose.function modl f t
+        checkArgs modl f kctx tctx' t' as
+      e@(E.Abs s ps m e') -> synthAbs kctx tctx ps
+        where
+          synthAbs kctxi tctxi = \case
+            [] -> synth modl kctxi tctxi e'
+            ExpLevel (pi, ti) : ps' -> do
+              Kinding.checkProperK ti
+              (kctxi', tctxp) <- checkPat modl kctxi pi ti
+              (ti', tctxi') <- synthAbs kctxi' (Map.union tctxp tctxi) ps'
+              tctxi'' <- typeCtxDifference kctxi' tctxi' tctxp
+              when (m == K.Un) do checkEquivTypeCtxsUnFun tctxi'' tctxi (Right e)
+              return (T.AppArrow (spanFromTo pi e') m ti ti', tctxi'')
+            TypeLevel (ai, ki) : ps' -> do
+              (ti', tctxi') <- synthAbs (Map.insert ai ki kctxi) tctxi ps'
+              let ti'' = case ti' of
+                    T.AppForall s aks ti' ->
+                      T.AppForall (spanFromTo ai e') ((ai,ki) : aks) ti'
+                    ti' ->
+                      T.AppForall (spanFromTo ai e') [(ai, ki)] ti'
+              return (ti'', tctxi')
+      e@(E.Pack s ts e') -> throwE (CannotSynthesisePack s e)
+      E.Asc _ e t -> (t,) <$> check modl kctx tctx e t
+      E.Let s ds e    -> do
+        (tctxds, kctx', tctx') <- checkDecls modl kctx tctx ds
+        (t, tctxe) <- synth modl kctx' tctx' e
+        (t,) <$> typeCtxDifference kctx' tctxe tctxds
+      e@(E.Semi s e1 e2) -> do
+        (t, tctx') <- synth modl kctx tctx e1
+        when (Kinding.isStrictlyLin t) do
+          throwE (KindMismatch s (K.ut se1) t)
+        synth modl kctx tctx' e2
+        where se1 = getSpan e1
+      E.Case s e cs@((p1, rhs1) : cs')   -> do
+        -- TODO: detect redundant and incomplete patterns
+        (t, tctx') <- synth modl kctx tctx e
+        (kctxp1, tctxp1) <- checkPat modl kctx p1 t
+        (t1, tctxrhs1) <- synthRHS modl kctxp1 (tctxp1 `Map.union` tctx') (Right e) rhs1
+        tctx1 <- typeCtxDifference kctxp1 tctxrhs1 tctxp1
+        tctxis <- forM cs' \(pi, rhsi) -> do
+          (kctxpi, tctxpi) <- checkPat modl kctx pi t
+          tctxrhsi <- checkRHS modl kctxpi (tctxpi `Map.union` tctx') (Right e) rhsi t1
+          typeCtxDifference kctxpi tctxrhsi tctxpi
+        checkEquivTypeCtxs (Right e) (tctx1 : tctxis)
+        return (t1, tctx1)
+      e@(E.If s e1 e2 e3) -> do
+        tctx1 <- check modl kctx tctx e1 (T.Bool (getSpan e1))
+        (t2, tctx2) <- synth modl kctx tctx1 e2
+        tctx3 <- check modl kctx tctx1 e2 t2
+        checkEquivTypeCtxs (Right e) [tctx2, tctx3]
+        return (t2, tctx2)
+      E.Channel s t -> do
+        Kinding.checkChannel t
+        pure (T.Tuple s [t, T.AppDual s t], tctx)
+      E.Select s i -> do
+        throwE (CannotSynthesiseSelect s i)
+      E.SendType s t -> do
+        throwE (CannotSynthesiseSendType s)
+      E.ReceiveType s -> do
+        throwE (CannotSynthesiseReceiveType s)
+    _ -> throwE error
 
 -- | Synthesis for RHSs. Given kind and type contexts (and the 
 -- pattern/expression where the RHS occurs in, for error messages), this 
@@ -260,87 +265,123 @@ synthRHS modl kctx tctx fep = \case
     (t,) <$> typeCtxDifference kctx' tctx'' tctxds
 
 -- | Synthesis for expressions that may be refined. Synthesizes
--- the refined type of an expression, returning 'Just' the type if the syntax of the expression
--- is translatable to the syntax of the refinements or 'Nothing' otherwise
-synthRefinement :: E.KindedExp -> TypeCtx -> Maybe T.KindedType
-synthRefinement exp tctx = do
-  v <- evalState (runMaybeT $ exceptToMaybeT $ freshInternal mkGhostVar) emptyValidationState
+-- the refined type of an expression, returning the type if the syntax of the expression
+-- is translatable to the syntax of the refinements or throws 'NotARefinedType' error otherwise
+synthRefinement :: M.KindedModule -> KindCtx -> TypeCtx -> E.KindedExp -> Validation (Either R.Pred T.KindedType, TypeCtx, R.Payload)
+synthRefinement modl kctx tctx exp = do
+  -- TODO - Remove the payload
+  -- it is being used to identify the fake part of the predicate, the extra conditions needed for the Let v p
+  -- remove after adding dependent types (which should remove the Let constructor as well)
+  v <- freshInternal mkGhostVar
   case exp of
-    E.Int s x -> pure $ T.Int s v $ singletonPred v x
-    E.Var s x -> pure $ tctx Map.! Left x
+    E.DCons _ (Identifier _ "True") -> pure (Left R.PTrue, tctx, [])
+    E.DCons _ (Identifier _ "False") -> pure (Left R.PFalse, tctx, [])
+    E.App s (E.Var _ (external -> "(&&)")) [ExpLevel e1, ExpLevel e2] -> do
+      (_, p1, tctx', payload1) <- getPredInExp modl kctx tctx e1
+      (_, p2, tctx'', payload2)  <- getPredInExp modl kctx tctx' e2
+      return (Left $ R.And p1 p2, tctx'', payload1 ++ payload2)
+    E.App s (E.Var _ (external -> "(||)")) [ExpLevel e1, ExpLevel e2] -> do
+      (_, p1, tctx', payload1) <- getPredInExp modl kctx tctx e1
+      (_, p2, tctx'', payload2) <- getPredInExp modl kctx tctx' e2
+      return (Left $ R.Or p1 p2, tctx'', payload1 ++ payload2)
+    E.App s (E.Var _ (external -> "not")) [ExpLevel e] -> do
+      (_, p, tctx', payload) <- getPredInExp modl kctx tctx e
+      return (Left $ R.Not p, tctx', payload)
+    E.Int s x -> pure (Right $ T.Int s v $ singletonPred v x, tctx, [])
+    E.Var s x -> do
+      (t, tctx') <- lookupType kctx tctx $ Left x
+      return (Right t, tctx', [])
     E.App s (E.Var _ (external -> "(+)")) [ExpLevel e1, ExpLevel e2] -> do
-      (v1, p1) <- getPredInExp e1
-      (v2, p2) <- getPredInExp e2
-      return $ T.Int s v $ dependent2Pred v1 p1 v2 p2 v $ R.Sum (R.Var v1) (R.Var v2)
-    E.App s (E.Var _ (external -> "(-)")) [ExpLevel e] -> do
-      (v1, p1) <- getPredInExp e
-      return $ T.Int s v $ negativePred v1 p1 v
+      (v1, p1, tctx', payload1) <- getPredInExp modl kctx tctx e1
+      (v2, p2, tctx'', payload2) <- getPredInExp modl kctx tctx' e2
+      let (p, payload) = dependent2Pred v1 p1 v2 p2 v $ R.Sum (R.Var v1) (R.Var v2)
+      return (Right $ T.Int s v p, tctx'', payload1 ++ payload2 ++ [payload])
+    E.App s (E.Var _ (external -> "negate")) [ExpLevel e] -> do
+      (v1, p1, tctx', payload1) <- getPredInExp modl kctx tctx e
+      let (p, payload) = negativePred v1 p1 v
+      return (Right $ T.Int s v p, tctx', payload1 ++ [payload])
     E.App s (E.Var _ (external -> "(-)")) [ExpLevel e1, ExpLevel e2] -> do
-      (v1, p1) <- getPredInExp e1
-      (v2, p2) <- getPredInExp e2
-      return $ T.Int s v $ dependent2Pred v1 p1 v2 p2 v $ R.Sub (R.Var v1) (R.Var v2)
+      (v1, p1, tctx', payload1) <- getPredInExp modl kctx tctx e1
+      (v2, p2, tctx'', payload2) <- getPredInExp modl kctx tctx' e2
+      let (p, payload) = dependent2Pred v1 p1 v2 p2 v $ R.Sub (R.Var v1) (R.Var v2)
+      return (Right $ T.Int s v p, tctx'', payload1 ++ payload2 ++ [payload])
     E.App s (E.Var _ (external -> "(*)")) [ExpLevel e1, ExpLevel e2] -> do
-      (v1, p1) <- getPredInExp e1
-      (v2, p2) <- getPredInExp e2
-      return $ T.Int s v $ dependent2Pred v1 p1 v2 p2 v $ R.Prod (R.Var v1) (R.Var v2)
+      (v1, p1, tctx', payload1) <- getPredInExp modl kctx tctx e1
+      (v2, p2, tctx'', payload2) <- getPredInExp modl kctx tctx' e2
+      let (p, payload) = dependent2Pred v1 p1 v2 p2 v $ R.Prod (R.Var v1) (R.Var v2)
+      return (Right $ T.Int s v p, tctx'', payload1 ++ payload2 ++ [payload])
+    E.App s (E.Var _ (external -> cmp)) [ExpLevel e1, ExpLevel e2] | isCMP cmp -> do
+      (v1, p1, tctx', payload1) <- getPredInExp modl kctx tctx e1
+      comp <- synthCMP cmp
+      (v2, p2, tctx'', payload2) <- getPredInExp modl kctx tctx' e2
+      return (Left $ R.Cmp (R.Var v1) comp (R.Var v2), tctx'', payload1 ++ payload2 ++ [R.Let v1 $ R.Let v2 $ R.And p1 p2])
     E.If s e1 e2 e3 -> do
-      p1 <- synthPred e1 tctx
-      (v2, p2) <- getPredInExp e2
-      (v3, p3) <- getPredInExp e3
-      return $ T.Int s v $ ifPred p1 v2 p2 v3 p3 v
-    _ -> Nothing
+      (tp1, tctx', payload1) <- synthRefinement modl kctx tctx e1
+      case tp1 of
+        Right t1 -> throwE NotARefinedType
+        Left p1 -> do
+          (v2, p2, tctx'', payload2) <- getPredInExp modl kctx tctx' e2
+          (v3, p3, tctx''', payload3) <- getPredInExp modl kctx tctx'' e3
+          let (p, payload) = ifPred p1 (payload1 ++ payload2 ++ payload3) v2 p2 v3 p3 v
+          return (Right $ T.Int s v p, tctx''', [payload])
+    _ -> throwE NotARefinedType
   where
-    getPred t = do
-      (v, _, p) <- T.getRefinement t
-      return (v, p)
-    getPredInExp e = do
-      t <- synthRefinement e tctx
-      (v, p) <- getPred t
-      return (v, p)
-    singletonPred v x = R.Cmp (R.Var v) R.Eq $ if x >= 0 then R.Const x else R.Neg $ R.Const x
-    negativePred v1 p1 v = R.Let v1 $ R.And p1 $ R.Cmp (R.Var v) R.Eq (R.Neg $ R.Var v1)
-    dependent2Pred v1 p1 v2 p2 v comb = R.Let v1 $ R.Let v2 $ R.And (R.And p1 p2) (R.Cmp (R.Var v) R.Eq comb)
-    ifPred p1 v2 p2 v3 p3 v = R.Let v2 $ R.Let v3 $ R.And (R.Implies p1 p2) (R.Implies (R.Not p1) p3)
+    singletonPred v x = R.Cmp (R.Var v) R.Eq (R.Const x)
+    varEqVar v1 v2 = R.Cmp (R.Var v1) R.Eq (R.Var v2)
+    negativePred v1 p1 v = (R.Cmp (R.Var v) R.Eq (R.Neg $ R.Var v1), R.Let v1 p1)
+    dependent2Pred v1 p1 v2 p2 v comb = (R.Cmp (R.Var v) R.Eq comb, R.Let v1 $ R.Let v2 $ R.And p1 p2)
+    ifPred p1 payload v2 p2 v3 p3 v = (
+        R.pAll [
+          R.Implies p1         $ R.pAll [varEqVar v v2, p2],
+          R.Implies (R.Not p1) $ R.pAll [varEqVar v v3, p3]
+        ],
+        R.Let v2 $ R.Let v3 $ R.pAll payload
+      )
 
-synthPred :: E.KindedExp -> TypeCtx -> Maybe R.Pred
-synthPred e tctx = case e of
-  E.DCons _ (Identifier _ "True") -> Just R.PTrue
-  E.DCons _ (Identifier _ "False") -> Just R.PFalse
-  E.App s (E.Var _ (external -> "(&&)")) [ExpLevel e1, ExpLevel e2] -> do
-    (_, p1) <- getPredInExp e1
-    (_, p2) <- getPredInExp e2
-    return $ R.And p1 p2
-  E.App s (E.Var _ (external -> "(||)")) [ExpLevel e1, ExpLevel e2] -> do
-    (_, p1) <- getPredInExp e1
-    (_, p2) <- getPredInExp e2
-    return $ R.Or p1 p2
-  E.App s (E.Var _ (external -> "not")) [ExpLevel e] -> do
-    (_, p) <- getPredInExp e
-    return $ R.Not p
-  E.App s (E.Var _ (external -> cmp)) [ExpLevel e1, ExpLevel e2] -> do
-    (v1, p1) <- getPredInExp e1
-    comp <- synthCMP cmp
-    (v2, p2) <- getPredInExp e2
-    return $ R.Let v1 $ R.Let v2 $ R.And (R.And p1 p2) $ R.Cmp (R.Var v1) comp (R.Var v2)
-  _ -> Nothing
-  where
-    getPred t = do
-      (v, _, p) <- T.getRefinement t
-      return (v, p)
-    getPredInExp e = do
-      t <- synthRefinement e tctx
-      (v, p) <- getPred t
-      return (v, p)
-
-synthCMP :: String -> Maybe R.Cmp
+synthCMP :: String -> Validation R.Cmp
 synthCMP = \case
-  "(<)" -> Just R.Lt
-  "(<=)" -> Just R.Le
-  "(==)" -> Just R.Eq
-  "(>=)" -> Just R.Ge
-  "(>)" -> Just R.Gt
-  "(/=)" -> Just R.Diff
-  _ -> Nothing
+  "(<)" -> pure R.Lt
+  "(<=)" -> pure R.Le
+  "(==)" -> pure R.Eq
+  "(>=)" -> pure R.Ge
+  "(>)" -> pure R.Gt
+  "(/=)" -> pure R.Diff
+  _ -> throwE NotARefinedType
+
+isCMP :: String -> Bool
+isCMP = \case
+  "(<)" -> True
+  "(<=)" -> True
+  "(==)" -> True
+  "(>=)" -> True
+  "(>)" -> True
+  "(/=)" -> True
+  _ -> False
+
+getPredInExp :: M.KindedModule -> KindCtx -> TypeCtx -> E.KindedExp -> Validation (Variable, R.Pred, TypeCtx, R.Payload)
+getPredInExp modl kctx tctx e = do
+  (tp, tctx', payload) <- synthRefinement modl kctx tctx e
+  case tp of
+    Left p -> pure (mkGhostVar, p, tctx', payload)
+    Right t -> do
+      et <- extractTypeFromName modl t
+      (v, p) <- getPred et
+      return (v, p, tctx', payload)
+
+getPred :: T.KindedType -> Validation (Variable, R.Pred)
+getPred t = do
+  (v, _, p) <- case T.getRefinement t of
+    Just r -> pure r
+    Nothing -> throwE NotARefinedType
+  return (v, p)
+
+extractTypeFromName :: M.KindedModule -> T.KindedType -> Validation T.KindedType
+extractTypeFromName modl t = case t of
+  T.TName _ _ id -> case M.typeDecls modl Map.!? id of
+    Just (_, typ) -> pure typ
+    Nothing -> throwE NotARefinedType
+  _ -> pure t
+
 
 -- | Check-against for expressions. Given kind and type contexts, it checks
 -- whether an expression has a given type, throwing an error if it does not.
@@ -348,183 +389,190 @@ synthCMP = \case
 -- the expression.
 check :: M.KindedModule -> KindCtx -> TypeCtx -> E.KindedExp -> T.KindedType
       -> Validation TypeCtx
-check modl kctx tctx e t = case e of
-  exp@(E.Int s x) -> do
-    (u, _) <- synth modl kctx tctx exp
-    checkSubtypeOf modl (Left e) u t
-    pure tctx
-  E.Float s _ -> checkSubtypeOf modl (Left e) (T.Float s) t >> pure tctx
-  E.Char s _  -> checkSubtypeOf modl (Left e) (T.Char s)  t >> pure tctx
-  -- Tuples, (e1 ... , en)
-  E.Tuple s es ->
-    case normalise modl t of
-      T.Tuple _ ts | length es == length ts ->
-        foldM (\tctx' (ei,ti) -> check modl kctx tctx' ei ti) tctx (zip es ts)
-      _ -> do
-        (u, _) <- synth modl kctx tctx e
-        throwE (TypeMismatch s t u (Left e))
-  -- Nil, [] @a
-  E.Nil s u -> do
-    Kinding.checkProperK u
-    case (normalise modl t, normalise modl u) of
-      (T.List _ t', u') -> do
-        checkSubtypeOf modl (Left e) u' t'
-        return tctx
-      _ -> throwE (TypeMismatch s t (T.List (getSpan u) u) (Left e))
-    -- Cons, (::) @a e1 e2
-  E.Cons s e1 e2 ->
-    case normalise modl t of
-      T.List _ t' -> do
-        tctx' <- check modl kctx tctx e1 t'
+check modl kctx tctx e t = catchE
+  (do -- try to synth as a refined type
+    (up, tctx', payload) <- synthRefinement modl kctx tctx e
+    case up of
+      Left p -> throwE NotARefinedType
+      Right u' -> do
+        (v, p) <- getPred u'
+        let u = T.Int (getSpan e) v $ R.And (R.pAll payload) p
+        checkSubtypeOf modl (Left e) u t
+        return tctx'
+  ) \error -> case error of
+    NotARefinedType -> case e of
+      E.Float s _ -> checkSubtypeOf modl (Left e) (T.Float s) t >> pure tctx
+      E.Char s _  -> checkSubtypeOf modl (Left e) (T.Char s)  t >> pure tctx
+      -- Tuples, (e1 ... , en)
+      E.Tuple s es ->
+        case normalise modl t of
+          T.Tuple _ ts | length es == length ts ->
+            foldM (\tctx' (ei,ti) -> check modl kctx tctx' ei ti) tctx (zip es ts)
+          _ -> do
+            (u, _) <- synth modl kctx tctx e
+            throwE (TypeMismatch s t u (Left e))
+      -- Nil, [] @a
+      E.Nil s u -> do
+        Kinding.checkProperK u
+        case (normalise modl t, normalise modl u) of
+          (T.List _ t', u') -> do
+            checkSubtypeOf modl (Left e) u' t'
+            return tctx
+          _ -> throwE (TypeMismatch s t (T.List (getSpan u) u) (Left e))
+        -- Cons, (::) @a e1 e2
+      E.Cons s e1 e2 ->
+        case normalise modl t of
+          T.List _ t' -> do
+            tctx' <- check modl kctx tctx e1 t'
+            check modl kctx tctx' e2 t
+          _ -> do
+            (u, _) <- synth modl kctx tctx e
+            throwE (TypeMismatch s t u (Left e))
+      E.DCons s i      -> do
+        (u,tctx') <- lookupType kctx tctx (Right i)
+        checkSubtypeOf modl (Left e) u t
+        return tctx'
+      E.Var s x       -> do
+        (u, tctx') <- lookupType kctx tctx (Left x)
+        checkSubtypeOf modl (Left e) u t
+        return tctx'
+      -- send e1 e2
+      E.App s (E.Var s' x) [ExpLevel e1, ExpLevel e2] | external x == "send" -> do -- TODO: remove magic constants (and refactor Syntax.Names).
+        (u, tctx') <- synth modl kctx tctx e                                            -- (or not, since these cases are temporary...)
+        checkSubtypeOf modl (Left e) u t
+        return tctx'
+      -- receive e
+      E.App s (E.Var s' x) [ExpLevel e] | external x == "receive" -> do
+        (u, tctx') <- synth modl kctx tctx e
+        (t1, t2) <- Expose.input modl (Right e) u
+        checkSubtypeOf modl (Left e) (T.Tuple s [t1,t2]) t
+        return tctx'
+      -- fork e
+      E.App s (E.Var s' x) [ExpLevel e] | external x == "fork" -> do
+        (u, tctx') <- synth modl kctx tctx e
+        checkSubtypeOf modl (Left e) u t
+        return tctx'
+      -- select l e1 ... en
+      E.App s f@(E.Select _ i) as ->
+        case as of
+          [] -> throwE (CannotSynthesiseSelect s i)
+          (TypeLevel u : _  ) ->
+            throwE (UnexpectedArg (getSpan t) 1 (ExpLevel Nothing) (TypeLevel u))
+          (ExpLevel  e' : as') -> do
+            (u, tctx') <- synth modl kctx tctx e'
+            ui <- Expose.internalChoice modl e' u i
+            (t', tctx'') <- checkArgs modl (E.App s f [ExpLevel e']) kctx tctx' ui as'
+            checkSubtypeOf modl (Left e) t' t
+            return tctx''
+      E.App s f@(E.SendType s' u) as ->
+        case as of
+          [] -> throwE (CannotSynthesiseSendType s')
+          (TypeLevel v : _) ->
+            throwE (UnexpectedArg (getSpan v) 1 (ExpLevel Nothing) (TypeLevel v))
+          (ExpLevel e' : as') -> do
+            (v, tctx') <- synth modl kctx tctx e'
+            (a, _, v') <- Expose.typeOutput modl e' v
+            (t', tctx'') <- checkArgs modl (E.App s f [ExpLevel e']) kctx tctx' (subs a u v') as'
+            checkSubtypeOf modl (Left e) t' t
+            return tctx''
+      E.App s f@(E.ReceiveType s') as ->
+        case as of
+          [] -> throwE (CannotSynthesiseReceiveType s)
+          (TypeLevel u : _) ->
+            throwE (UnexpectedArg (getSpan u) 1 (ExpLevel Nothing) (TypeLevel u))
+          (ExpLevel e' : as') -> do
+            (u, tctx') <- synth modl kctx tctx e'
+            (a, k, u') <- Expose.typeInput modl (Right e') u
+            let v = T.AppExists (spanFromTo f e') [(a, k)] u'
+            (t', tctx'') <- checkArgs modl (E.App (spanFromTo f e') f [ExpLevel e']) kctx tctx' v as'
+            checkSubtypeOf modl (Left e) t' t
+            return tctx''
+      E.App s f as -> do
+        (u, tctx') <- synth modl kctx tctx f
+        (v, tctx'') <- checkArgs modl f kctx tctx' u as
+        checkSubtypeOf modl (Left e) v t
+        return tctx''
+      E.Abs s ps m e' -> do
+        checkFun modl kctx tctx (Right e) pps (Just m) (E.UnguardedRHS e' Nothing) t
+        where
+          pps = map (bimap (second Just) (second Just)) ps
+      E.Pack s ts e' -> do
+        case normalise modl t of
+          T.AppExists s aks t -> checkPack modl kctx tctx e' ts aks t
+          _ -> throwE (TypeMismatchExists s t (Right e))
+      E.Asc s e u -> do
+        checkSubtypeOf modl (Left e) u t
+        check modl kctx tctx e u
+      E.Let s ds e' -> do
+        (tctxds, kctx', tctx') <- checkDecls modl kctx tctx ds
+        tctx'' <- check modl kctx' tctx' e' t
+        typeCtxDifference kctx' tctx'' tctxds
+      E.Semi s e1 e2 -> do
+        (t1, tctx') <- synth modl kctx tctx e1
+        Kinding.checkK t1 (K.Proper (getSpan e1) K.Un K.Top)
         check modl kctx tctx' e2 t
-      _ -> do
-        (u, _) <- synth modl kctx tctx e
-        throwE (TypeMismatch s t u (Left e))
-  E.DCons s i      -> do
-    (u,tctx') <- lookupType kctx tctx (Right i)
-    checkSubtypeOf modl (Left e) u t
-    return tctx'
-  E.Var s x       -> do
-    (u, tctx') <- lookupType kctx tctx (Left x)
-    checkSubtypeOf modl (Left e) u t
-    return tctx'
-  -- send e1 e2
-  E.App s (E.Var s' x) [ExpLevel e1, ExpLevel e2] | external x == "send" -> do -- TODO: remove magic constants (and refactor Syntax.Names).
-    (u, tctx') <- synth modl kctx tctx e                                            -- (or not, since these cases are temporary...)
-    checkSubtypeOf modl (Left e) u t
-    return tctx'
-  -- receive e
-  E.App s (E.Var s' x) [ExpLevel e] | external x == "receive" -> do
-    (u, tctx') <- synth modl kctx tctx e
-    (t1, t2) <- Expose.input modl (Right e) u
-    checkSubtypeOf modl (Left e) (T.Tuple s [t1,t2]) t
-    return tctx'
-  -- fork e
-  E.App s (E.Var s' x) [ExpLevel e] | external x == "fork" -> do
-    (u, tctx') <- synth modl kctx tctx e
-    checkSubtypeOf modl (Left e) u t
-    return tctx'
-  -- select l e1 ... en
-  E.App s f@(E.Select _ i) as ->
-    case as of
-      [] -> throwE (CannotSynthesiseSelect s i)
-      (TypeLevel u : _  ) ->
-        throwE (UnexpectedArg (getSpan t) 1 (ExpLevel Nothing) (TypeLevel u))
-      (ExpLevel  e' : as') -> do
+      E.Case s e' psrhss -> do
         (u, tctx') <- synth modl kctx tctx e'
-        ui <- Expose.internalChoice modl e' u i
-        (t', tctx'') <- checkArgs modl (E.App s f [ExpLevel e']) kctx tctx' ui as'
-        checkSubtypeOf modl (Left e) t' t
-        return tctx''
-  E.App s f@(E.SendType s' u) as ->
-    case as of
-      [] -> throwE (CannotSynthesiseSendType s')
-      (TypeLevel v : _) ->
-        throwE (UnexpectedArg (getSpan v) 1 (ExpLevel Nothing) (TypeLevel v))
-      (ExpLevel e' : as') -> do
-        (v, tctx') <- synth modl kctx tctx e'
-        (a, _, v') <- Expose.typeOutput modl e' v
-        (t', tctx'') <- checkArgs modl (E.App s f [ExpLevel e']) kctx tctx' (subs a u v') as'
-        checkSubtypeOf modl (Left e) t' t
-        return tctx''
-  E.App s f@(E.ReceiveType s') as ->
-    case as of
-      [] -> throwE (CannotSynthesiseReceiveType s)
-      (TypeLevel u : _) ->
-        throwE (UnexpectedArg (getSpan u) 1 (ExpLevel Nothing) (TypeLevel u))
-      (ExpLevel e' : as') -> do
-        (u, tctx') <- synth modl kctx tctx e'
-        (a, k, u') <- Expose.typeInput modl (Right e') u
-        let v = T.AppExists (spanFromTo f e') [(a, k)] u'
-        (t', tctx'') <- checkArgs modl (E.App (spanFromTo f e') f [ExpLevel e']) kctx tctx' v as'
-        checkSubtypeOf modl (Left e) t' t
-        return tctx''
-  E.App s f as -> do
-    (u, tctx') <- synth modl kctx tctx f
-    (v, tctx'') <- checkArgs modl f kctx tctx' u as
-    checkSubtypeOf modl (Left e) v t
-    return tctx''
-  E.Abs s ps m e' -> do
-    checkFun modl kctx tctx (Right e) pps (Just m) (E.UnguardedRHS e' Nothing) t
-    where
-      pps = map (bimap (second Just) (second Just)) ps
-  E.Pack s ts e' -> do
-    case normalise modl t of
-      T.AppExists s aks t -> checkPack modl kctx tctx e' ts aks t
-      _ -> throwE (TypeMismatchExists s t (Right e))
-  E.Asc s e u -> do
-    checkSubtypeOf modl (Left e) u t
-    check modl kctx tctx e u
-  E.Let s ds e' -> do
-    (tctxds, kctx', tctx') <- checkDecls modl kctx tctx ds
-    tctx'' <- check modl kctx' tctx' e' t
-    typeCtxDifference kctx' tctx'' tctxds
-  E.Semi s e1 e2 -> do
-    (t1, tctx') <- synth modl kctx tctx e1
-    Kinding.checkK t1 (K.Proper (getSpan e1) K.Un K.Top)
-    check modl kctx tctx' e2 t
-  E.Case s e' psrhss -> do
-    (u, tctx') <- synth modl kctx tctx e'
-    tctxs <- forM psrhss \(pi, rhsi) -> do
-      (kctxpi, tctxpi) <- checkPat modl kctx pi u
-      let kctx' = kctxpi `Map.union` kctx
-      tctxrhsi <- checkRHS modl kctx' (tctxpi `Map.union` tctx') (Right e) rhsi t
-      typeCtxDifference kctx' tctxrhsi tctxpi
-    checkEquivTypeCtxs (Right e) tctxs
-    return (head tctxs)
-  exp@(E.If s e1 e2 e3) | Just u <- synthRefinement exp tctx -> checkSubtypeOf modl (Left e) u t >> pure tctx
-  E.If s e1 e2 e3 -> do
-    tctx1 <- check modl kctx tctx e1 (T.Bool s)
-    tctx2 <- check modl kctx tctx1 e2 t
-    tctx3 <- check modl kctx tctx1 e3 t
-    checkEquivTypeCtxs (Right e) [tctx2, tctx3]
-    return tctx2
-  E.Channel s u -> do
-    Kinding.checkChannel u
-    case normalise modl t of
-      T.Tuple _ [t1,t2] -> do
-        checkSubtypeOf modl (Left e) t1 u
-        checkSubtypeOf modl (Left e) (T.AppDual (getSpan u) u) t2
-        return tctx
-      _ -> do
-        (u, _) <- synth modl kctx tctx e
-        throwE (TypeMismatch s t u (Left e))
-  E.Select s i -> do
-    case normalise modl t of
-      T.AppArrow s' m t1 t2 -> do
-        case normalise modl t1 of
-          T.AppLinChoice _ T.Out t1s ->
-            case lookup i t1s of
-              Just t1i -> do
-                checkSubtypeOf modl (Left e)
-                  (T.AppArrow s' m t1 t2 )
-                  (T.AppArrow s' m t1 t1i)
-                return tctx
-              Nothing -> throwE (IllegalChoice s i t1)
+        tctxs <- forM psrhss \(pi, rhsi) -> do
+          (kctxpi, tctxpi) <- checkPat modl kctx pi u
+          let kctx' = kctxpi `Map.union` kctx
+          tctxrhsi <- checkRHS modl kctx' (tctxpi `Map.union` tctx') (Right e) rhsi t
+          typeCtxDifference kctx' tctxrhsi tctxpi
+        checkEquivTypeCtxs (Right e) tctxs
+        return (head tctxs)
+      E.If s e1 e2 e3 -> do
+        tctx1 <- check modl kctx tctx e1 (T.Bool s)
+        tctx2 <- check modl kctx tctx1 e2 t
+        tctx3 <- check modl kctx tctx1 e3 t
+        checkEquivTypeCtxs (Right e) [tctx2, tctx3]
+        return tctx2
+      E.Channel s u -> do
+        Kinding.checkChannel u
+        case normalise modl t of
+          T.Tuple _ [t1,t2] -> do
+            checkSubtypeOf modl (Left e) t1 u
+            checkSubtypeOf modl (Left e) (T.AppDual (getSpan u) u) t2
+            return tctx
+          _ -> do
+            (u, _) <- synth modl kctx tctx e
+            throwE (TypeMismatch s t u (Left e))
+      E.Select s i -> do
+        case normalise modl t of
+          T.AppArrow s' m t1 t2 -> do
+            case normalise modl t1 of
+              T.AppLinChoice _ T.Out t1s ->
+                case lookup i t1s of
+                  Just t1i -> do
+                    checkSubtypeOf modl (Left e)
+                      (T.AppArrow s' m t1 t2 )
+                      (T.AppArrow s' m t1 t1i)
+                    return tctx
+                  Nothing -> throwE (IllegalChoice s i t1)
+              _ -> throwE (TypeMismatchSelect s t i e)
           _ -> throwE (TypeMismatchSelect s t i e)
-      _ -> throwE (TypeMismatchSelect s t i e)
-  E.SendType s u -> do
-    case normalise modl t of
-      T.AppArrow s m t1 t2 -> do
-        case normalise modl t2 of
-          T.AppQuantS s T.Out a k t2' -> do
-            checkSubtypeOf modl (Left e)
-              (T.AppArrow s m t1 t2)
-              (T.AppArrow s m t1 (subs a u t2'))
-            return tctx
+      E.SendType s u -> do
+        case normalise modl t of
+          T.AppArrow s m t1 t2 -> do
+            case normalise modl t2 of
+              T.AppQuantS s T.Out a k t2' -> do
+                checkSubtypeOf modl (Left e)
+                  (T.AppArrow s m t1 t2)
+                  (T.AppArrow s m t1 (subs a u t2'))
+                return tctx
+              _ -> throwE (TypeMismatchSendType s t)
           _ -> throwE (TypeMismatchSendType s t)
-      _ -> throwE (TypeMismatchSendType s t)
-  E.ReceiveType s -> do
-    case normalise modl t of
-      T.AppArrow s' m t1 t2 -> do
-        case normalise modl t2 of
-          T.AppQuantS s'' T.In a k t2' -> do
-            checkSubtypeOf modl (Left e)
-              (T.AppArrow s' m t1 t2)
-              (T.AppArrow s' m t1 (T.AppExists s'' [(a, k)] t2'))
-            return tctx
+      E.ReceiveType s -> do
+        case normalise modl t of
+          T.AppArrow s' m t1 t2 -> do
+            case normalise modl t2 of
+              T.AppQuantS s'' T.In a k t2' -> do
+                checkSubtypeOf modl (Left e)
+                  (T.AppArrow s' m t1 t2)
+                  (T.AppArrow s' m t1 (T.AppExists s'' [(a, k)] t2'))
+                return tctx
+              _ -> throwE (TypeMismatchReceiveType s t)
           _ -> throwE (TypeMismatchReceiveType s t)
-      _ -> throwE (TypeMismatchReceiveType s t)
+    _ -> throwE error
 
 
 -- | Checking for declarations. Given kind and type contexts, it validates a
@@ -690,8 +738,14 @@ checkPat :: M.KindedModule
 checkPat modl kctx p t = case p of
   -- 0
   E.IntPat    s x   -> do
-    checkSubtypeOf modl (Right p) (fromJust $ synthRefinement (E.Int s x) Map.empty) t
-    pure (kctx, Map.empty)
+    (up, tctx', payload) <- synthRefinement modl kctx Map.empty (E.Int s x)
+    case up of
+      Left pred -> internalError $ "Subtyping.Typing failed to synth pattern Int. Instead of type, got predicate: " ++ show pred
+      Right u' -> do
+        (v, pred) <- getPred u'
+        let u = T.Int (getSpan p) v $ R.And (R.pAll payload) pred
+        checkSubtypeOf modl (Right p) u t
+        pure (kctx, Map.empty)
   -- 0.0
   E.FloatPat  s _   -> do
     checkSubtypeOf modl (Right p) (T.Float s) t
