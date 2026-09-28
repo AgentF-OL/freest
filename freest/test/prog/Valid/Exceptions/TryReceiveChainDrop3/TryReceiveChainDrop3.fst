@@ -8,8 +8,8 @@ sendInts (x, y, z) c = c |> send x |> send y |> drop
 
 sumInts : Dual Three -> Int
 sumInts c =
-  try receive c as (c, n1) in
-    try receive c as (c, n2) in
+  try receive c as (n1, c) in
+    try receive c as (n2, c) in
       try receiveAndWait c as n3 in
         n1 + n2 + n3
       otherwise
