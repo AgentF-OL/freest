@@ -1,0 +1,22 @@
+module TryReceiveChainDrop2 where
+
+type Three : 1C
+type Three = !Int ; !Int ; !Int ; Close
+
+sendInts : (Int, Int, Int) -> Three -> ()
+sendInts (x, y, z) c = c |> send x |> drop
+
+sumInts : Dual Three -> Int
+sumInts c =
+  try receive c as (c, n1) in
+    try receive c as (c, n2) in
+      try receiveAndWait c as n3 in
+        n1 + n2 + n3
+      otherwise
+        n1 + n2
+    otherwise
+      n1
+  otherwise
+    0
+
+_ = forkWith (sendInts (1, 2, 4)) |> sumInts
