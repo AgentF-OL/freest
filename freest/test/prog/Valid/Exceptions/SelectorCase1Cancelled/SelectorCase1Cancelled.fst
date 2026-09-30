@@ -20,6 +20,8 @@ receiveOrder c =
       &Pizza c ->
         try receiveAndWait c as qty in 7.00 * qty
         otherwise print "Order cancelled: missing quantity of pizza."; 0.00
+  as price in
+    price
   otherwise
     print "Order cancelled: no dessert selected."; 0.00
 
