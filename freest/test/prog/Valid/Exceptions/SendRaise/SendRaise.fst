@@ -12,4 +12,4 @@ receiveInt c =
   otherwise
     Nothing
 
-_ = forkWith sendSurprise |> receiveInt
+_ = forkWith sendSurprise |> receiveInt |> print

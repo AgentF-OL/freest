@@ -1,6 +1,6 @@
 module TryVariableDefinedInInnerTry where
 
-_ =
+_ = print $
   try
     let x = 1 in x;
     try

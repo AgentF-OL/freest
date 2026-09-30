@@ -12,4 +12,4 @@ receiveInt c =
   otherwise
     Nothing
 
-_ = forkWith (sendInt 42) |> receiveInt
+_ = forkWith (sendInt 42) |> receiveInt |> print

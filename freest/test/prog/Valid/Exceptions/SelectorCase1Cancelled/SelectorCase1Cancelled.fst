@@ -25,4 +25,4 @@ receiveOrder c =
   otherwise
     print "Order cancelled: no dessert selected."; 0.00
 
-_ = forkWith (orderCake 3) |> receiveOrder
+_ = forkWith (orderCake 3) |> receiveOrder |> print

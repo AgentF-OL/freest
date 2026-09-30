@@ -16,4 +16,4 @@ sumInts c =
   as res in Just res
   otherwise Nothing
 
-_ = forkWith (sendInts (1, 2, 4)) |> sumInts
+_ = forkWith (sendInts (1, 2, 4)) |> sumInts |> print
