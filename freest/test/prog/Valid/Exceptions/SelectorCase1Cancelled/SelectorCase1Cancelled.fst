@@ -8,7 +8,7 @@ type Order : 1C
 type Order = +{Cake: !Qty, Pizza: !Qty} ; Close
 
 orderCake : Order -> Int -> ()
-orderCake c qty = c |> select Cake |> drop
+orderCake c qty = c |> select Cake |> cancel
 
 receiveOrder : Dual Order -> Price
 receiveOrder c =

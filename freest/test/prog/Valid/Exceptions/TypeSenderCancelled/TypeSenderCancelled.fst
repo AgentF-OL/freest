@@ -15,6 +15,6 @@ render c =
   otherwise print "Failed to receive type of the value to render"
 
 charRenderer : Dual Render -> String
-charRenderer c = drop c; ";)"
+charRenderer c = cancel c; ";)"
 
 _ = forkWith render |> charRenderer |> print

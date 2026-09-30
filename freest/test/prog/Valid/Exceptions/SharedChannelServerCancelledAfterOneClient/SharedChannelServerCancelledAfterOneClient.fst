@@ -15,12 +15,12 @@ client n c =
   otherwise print "[Client] Server unavailable"; Nothing
 
 server : Int -> Dual GzService -> ()
+server 0 s = cancel s; print "[Server] Shutting down"
 server n s =
-  try if n == 0 then raise else accept s as c in
-    try let (x, c) = receive c in sendAndWait (x > 0) c
-    as _ in server (n - 1) s
-    otherwise print "[Server] Connection to client lost"; server (n - 1) s
-  otherwise drop s; print "[Server] Shutting down"
+  let c = accept s in
+  try let (x, c) = receive c in sendAndWait (x > 0) c
+  as _ in server (n - 1) s
+  otherwise print "[Server] Connection to client lost"; server (n - 1) s
 
 _ =
   let (c, s) = channel @GzService in

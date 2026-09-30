@@ -1,17 +1,19 @@
-module TryReceiveChainNoDrop where
+module TryReceiveChainCancel4 where
 
 type Three : 1C
 type Three = !Int ; !Int ; !Int ; Close
 
 sendInts : (Int, Int, Int) -> Three -> ()
-sendInts (x, y, z) c = c |> send x |> send y |> sendAndClose z
+sendInts (x, y, z) c = c |> send x |> send y |> send z |> cancel
 
 sumInts : Dual Three -> Int
 sumInts c =
   try receive c as (n1, c) in
     try receive c as (n2, c) in
-      try receiveAndWait c as n3 in
-        n1 + n2 + n3
+      try receive c as (n3, c) in
+        try wait c
+        as _ in n1 + n2 + n3
+        otherwise n1 + n2 + n3
       otherwise
         n1 + n2
     otherwise

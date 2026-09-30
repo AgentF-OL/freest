@@ -1,7 +1,7 @@
 module SenderCancelled where
 
 sendInt : Int -> !Int ; Wait -> ()
-sendInt n c = drop c
+sendInt n c = cancel c
 
 receiveInt : ?Int ; Close -> Maybe Int
 receiveInt c =

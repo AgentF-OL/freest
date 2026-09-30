@@ -1,10 +1,10 @@
-module TryReceiveChainDrop4 where
+module TryReceiveChainCancel2 where
 
 type Three : 1C
 type Three = !Int ; !Int ; !Int ; Close
 
 sendInts : (Int, Int, Int) -> Three -> ()
-sendInts (x, y, z) c = c |> send x |> send y |> send z |> drop
+sendInts (x, y, z) c = c |> send x |> cancel
 
 sumInts : Dual Three -> Int
 sumInts c =

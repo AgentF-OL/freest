@@ -15,22 +15,7 @@ sendInts (x, y, z) c1 =
   in close c3; close c2; close c1
 
 sumInts : Dual Three -> Maybe Int
-sumInts c1 = drop c1; Nothing -- c1 buffer has 2 channels inside, which should be cancelled without an error
-
-{- sumInts : Dual Three -> Int
-sumInts c1 =
-  try receive c1 as (n1, c1) in
-    try receive c1 as (c2, c1) in
-      try receive c2 as (n2, c2) in
-        try receive c2 as (c3, c2) in
-          try receive c3 as (n3, c3) in
-            try wait c3; wait c2; wait c3 as _ in n1 + n2 + n3
-            otherwise print "Error waiting for all channels to close"; n1 + n2 + n3
-          otherwise "Error receiving int from channel 3"; n1 + n2
-        otherwise "Error receiving channel 3 from channel 2"; n1 + n2
-      otherwise "Error receiving int from channel 2"; n1
-    otherwise "Error receiving channel 2 from channel 1"; n1
-  otherwise "Error receiving int from channel 1"; -1 -}
+sumInts c1 = cancel c1; Nothing -- c1 buffer has 2 channels inside, which should be cancelled without an error
 
 _ =
   let (w, r) = channel @Three in

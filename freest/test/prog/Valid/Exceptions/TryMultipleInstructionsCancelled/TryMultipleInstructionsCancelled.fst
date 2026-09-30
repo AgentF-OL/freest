@@ -4,7 +4,7 @@ type Three : 1C
 type Three = !Int ; !Int ; !Int ; Close
 
 sendInts : (Int, Int, Int) -> Three -> ()
-sendInts (x, y, z) c = c |> send x |> drop
+sendInts (x, y, z) c = c |> send x |> cancel
 
 sumInts : Dual Three -> Maybe Int
 sumInts c =
