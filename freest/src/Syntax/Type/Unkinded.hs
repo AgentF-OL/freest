@@ -36,9 +36,7 @@ module Syntax.Type.Unkinded
   , pattern Bool
   , pattern AppDName
   , pattern AppVar
-  , T.Polarity(..)
   , T.smartApp
-  , T.Dual(..)
   , T.isConstant
   , T.isSkip
   , T.isVoid
@@ -65,14 +63,16 @@ import Syntax.Kind qualified as K
 import Data.Void
 
 type instance T.XType Parsed = Void
+type instance T.XBndKind Parsed = Maybe K.Kind
 
 type ParsedType = T.Type Parsed
 
 type instance T.XType Scoped = Void
+type instance T.XBndKind Scoped = Maybe K.Kind
 
 type ScopedType = T.Type Scoped
 
-type Unkinded x = (T.XType x ~ Void)
+type Unkinded x = (T.XType x ~ Void, T.XBndKind x ~ Maybe K.Kind)
 
 pattern Int :: Unkinded x => Span -> T.Type x
 pattern Int s <- T.Int s _
@@ -90,9 +90,9 @@ pattern Arrow :: Unkinded x => Span -> K.Multiplicity -> T.Type x
 pattern Arrow s m <- T.Arrow s _ m
   where Arrow s m = T.Arrow s void m
 
-pattern Quant :: Unkinded x => Span -> T.Polarity -> K.Prekind -> K.Multiplicity -> T.Type x
-pattern Quant s p pk m <- T.Quant s _ p pk m
-  where Quant s p pk m = T.Quant s void p pk m
+pattern Quant :: Unkinded x => Span -> Polarity -> K.BaseKind -> K.Multiplicity -> T.Type x
+pattern Quant s p bk m <- T.Quant s _ p bk m
+  where Quant s p bk m = T.Quant s void p bk m
 
 pattern ForallM :: Unkinded x => Span -> K.Multiplicity -> [Variable] -> T.Type x -> T.Type x
 pattern ForallM s m φs t <- T.ForallM s _ m φs t
@@ -106,15 +106,15 @@ pattern Skip :: Unkinded x => Span -> T.Type x
 pattern Skip s <- T.Skip s _
   where Skip s = T.Skip s void
 
-pattern End :: Unkinded x => Span -> T.Polarity -> T.Type x
+pattern End :: Unkinded x => Span -> Polarity -> T.Type x
 pattern End s p <- T.End s _ p
   where End s p = T.End s void p
 
-pattern Message :: Unkinded x => Span -> K.Multiplicity -> T.Polarity -> T.Type x
+pattern Message :: Unkinded x => Span -> K.Multiplicity -> Polarity -> T.Type x
 pattern Message s m p <- T.Message s _ m p
   where Message s m p = T.Message s void m p
 
-pattern Choice :: Unkinded x => Span -> K.Multiplicity -> T.Polarity -> [Identifier] -> T.Type x
+pattern Choice :: Unkinded x => Span -> K.Multiplicity -> Polarity -> [Identifier] -> T.Type x
 pattern Choice s m p is <- T.Choice s _ m p is
   where Choice s m p is = T.Choice s void m p is
 
@@ -138,7 +138,7 @@ pattern Var :: Unkinded x => Span -> Variable -> T.Type x
 pattern Var s a <- T.Var s _ _ a
   where Var s a = T.Var s void ObjLv a
 
-pattern Abs :: Unkinded x => Span -> [(Variable, K.Kind)] -> T.Type x -> T.Type x
+pattern Abs :: Unkinded x => Span -> [(Variable, Maybe K.Kind)] -> T.Type x -> T.Type x
 pattern Abs s aks t <- T.Abs s _ aks t
   where Abs s aks t = T.Abs s void aks t
 
@@ -146,15 +146,15 @@ pattern App :: Unkinded x => Span -> T.Type x -> [T.Type x] -> T.Type x
 pattern App s t ts <- T.App s _ t ts
   where App s t ts = T.App s void t ts
 
-pattern AppQuant :: Unkinded x => Span -> T.Polarity -> K.Prekind -> K.Multiplicity -> [(Variable, K.Kind)] -> T.Type x -> T.Type x
-pattern AppQuant s p pk m aks t <- T.AppQuant s _ _ _ p pk m aks t
-  where AppQuant s p pk m aks t  = T.AppQuant s void void void p pk m aks t
+pattern AppQuant :: Unkinded x => Span -> Polarity -> K.BaseKind -> K.Multiplicity -> [(Variable, Maybe K.Kind)] -> T.Type x -> T.Type x
+pattern AppQuant s p bk m aks t <- T.AppQuant s _ _ _ p bk m aks t
+  where AppQuant s p bk m aks t  = T.AppQuant s void void void p bk m aks t
 
-pattern AppForall :: Unkinded x => Span -> K.Multiplicity -> [(Variable, K.Kind)] -> T.Type x -> T.Type x
+pattern AppForall :: Unkinded x => Span -> K.Multiplicity -> [(Variable, Maybe K.Kind)] -> T.Type x -> T.Type x
 pattern AppForall s m aks t <- T.AppForall s _ _ _ m aks t
   where AppForall s m aks t =  T.AppForall s void void void m aks t
 
-pattern AppExists :: Unkinded x => Span -> [(Variable, K.Kind)] -> T.Type x -> T.Type x
+pattern AppExists :: Unkinded x => Span -> [(Variable, Maybe K.Kind)] -> T.Type x -> T.Type x
 pattern AppExists s aks t <- T.AppExists s _ _ _ aks t
   where AppExists s aks t  = T.AppExists s void void void aks t
 
@@ -162,19 +162,19 @@ pattern AppArrow :: Unkinded x => Span -> K.Multiplicity -> T.Type x -> T.Type x
 pattern AppArrow s m t u <- T.AppArrow s _ _ m t u
   where AppArrow s m t u  = T.AppArrow s void void m t u
 
-pattern AppMessage :: Unkinded x => Span -> K.Multiplicity -> T.Polarity -> T.Type x -> T.Type x
+pattern AppMessage :: Unkinded x => Span -> K.Multiplicity -> Polarity -> T.Type x -> T.Type x
 pattern AppMessage s m p t <- T.AppMessage s _ _ m p t
   where AppMessage s m p t  = T.AppMessage s void void m p t
 
-pattern AppQuantS :: Unkinded x => Span -> T.Polarity -> Variable -> K.Kind -> T.Type x -> T.Type x
+pattern AppQuantS :: Unkinded x => Span -> Polarity -> Variable -> Maybe K.Kind -> T.Type x -> T.Type x
 pattern AppQuantS s p a k t <- T.AppQuantS s _ _ _ p a k t
   where AppQuantS s p a k t  = T.AppQuantS s void void void p a k t
 
-pattern AppLinChoice :: Unkinded x => Span -> T.Polarity -> [(Identifier, T.Type x)] -> T.Type x
+pattern AppLinChoice :: Unkinded x => Span -> Polarity -> [(Identifier, T.Type x)] -> T.Type x
 pattern AppLinChoice s p lts <- T.AppLinChoice s _ _ p lts
   where AppLinChoice s p lts  = T.AppLinChoice s void void p lts
 
-pattern UnChoice :: Unkinded x => Span -> T.Polarity -> [Identifier] -> T.Type x
+pattern UnChoice :: Unkinded x => Span -> Polarity -> [Identifier] -> T.Type x
 pattern UnChoice s p ls <- T.UnChoice s _ p ls
   where UnChoice s p ls  = T.UnChoice s void p ls
 

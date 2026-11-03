@@ -1,5 +1,3 @@
-module SharedQueue where
-
 -- channel types
 
 type Head, Tail : *C
@@ -14,17 +12,12 @@ type Internal = ?Int; ?Internal; Close
 runHeadNode : Internal -> Dual Head -1-> ()
 runHeadNode prev head = 
     let (i, prev) = receive prev in
-    send_ i head;
-    runHeadNode (receiveAndClose prev) head
+    head |> send_ i |> runHeadNode (receiveAndClose prev)
 
 runTailNode : Dual Internal -> Dual Tail -1-> ()
 runTailNode next tail =
     let i = receive_ tail in
-    let (prev', next') = channel @Internal in
-    fork (\_ -1-> send i next |> send prev' |> wait);
-    runTailNode next' tail
-    -- Internal error at Validation.Rename.rename: Dual
-    -- runTailNode (fork_ @Internal (\(c : Dual Internal) -> send c (send i next))) tail
+    runTailNode (forkWith (\prev -1-> next |> send i |> send prev |> wait)) tail
 
 -- queue
 
@@ -37,9 +30,9 @@ initQueue =
     (forkWith (runHeadNode internalC),
      forkWith (runTailNode internalS))
 
-enqueue : Int -> Queue -> ()
-enqueue i queue = 
-    send_ i $ snd queue
+enqueue : Int -> Queue -> Tail
+enqueue i queue =
+    send_ i (snd queue)
 
 dequeue : Queue -> Int
 dequeue queue = 
@@ -51,8 +44,7 @@ type Counter = *?Int
 
 runCounter : Int -> Dual Counter -> ()
 runCounter i counter =
-    send_ i counter;
-    runCounter (i + 1) counter
+    counter |> send_ i |> runCounter (i + 1)
 
 initCounter : Counter
 initCounter = 
@@ -65,13 +57,28 @@ initCounter =
 maxSize : Int
 maxSize = 3
 
-main : ()
-main =
+-- | Dequeue three values and check that they make sense.
+test : Queue -> ()
+test queue =
+  if check (dequeue queue) (dequeue queue) (dequeue queue)
+  then putStrLn "nondeterministic test passed"
+  else putStrLn "nondeterministic test failed"
+  where
+    -- | The counter hands out 0, 1 and 2, one to each writer
+    valid : Int -> Bool
+    valid n = 0 <= n && n < maxSize
+    -- | Each value enqueued is dequeued exactly once, in any order (the writers
+    -- run concurrently)
+    check : Int -> Int -> Int -> Bool
+    check x y z =
+      valid x && valid y && valid z && x /= y && y /= z && x /= z
+
+_ =
     let queue   = initQueue in
     let counter = initCounter in
     -- writer-reader concurrency, no writter-writer nor reader-reader concurrency
     parallel maxSize (\_ -> enqueue (receive_ counter) queue);
-    repeat maxSize $ (\_ -> print (dequeue queue))
+    test queue
     -- writer-reader, writter-writer and reader-reader concurrency
     -- parallel @() 10 $ (\(_ : ()) -> enqueue (receiveUn @Int counter) queue);
     -- parallel @() 10 $ (\(_ : ()) -> printIntLn (dequeue queue))

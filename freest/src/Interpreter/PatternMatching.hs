@@ -35,7 +35,7 @@ import Data.Map (empty, singleton, union, insert)
 import Data.Maybe (catMaybes)
 
 import Interpreter.Value (Value(..), ValueCtx, Clause)
-import Interpreter.Builtin (asString, receive, receiveLabel)
+import Interpreter.Builtin (receive, receiveLabel)
 import qualified Syntax.Base as B
 import qualified Syntax.Expression as E
 
@@ -44,12 +44,12 @@ import qualified Syntax.Expression as E
 -- | Match a single pattern (one column) against a value, producing bindings on
 -- success or 'Nothing' on failure. Session patterns are matched against the
 -- *forced* representations produced by 'forceColumns'.
-matchPat :: Value -> E.Pat -> IO (Maybe ValueCtx)
+matchPat :: Value -> E.KindedPat -> IO (Maybe ValueCtx)
 matchPat v = \case
   E.IntPat _ i   -> pure $ case v of VInt   i' | i == i' -> Just empty ; _ -> Nothing
   E.FloatPat _ f -> pure $ case v of VFloat f' | f == f' -> Just empty ; _ -> Nothing
   E.CharPat _ c  -> pure $ case v of VChar  c' | c == c' -> Just empty ; _ -> Nothing
-  E.StringPat _ s -> pure $ case asString v of Just s' | s == s' -> Just empty ; _ -> Nothing
+  E.StringPat _ s -> pure $ if stringMatches s v then Just empty else Nothing
   E.WildPat _ _  -> pure (Just empty)
   E.VarPat _ x   -> pure (Just (singleton x v))
   E.AsPat _ x p  -> fmap (insert x v) <$> matchPat v p
@@ -65,20 +65,29 @@ matchPat v = \case
   --   a chosen branch  &l   →  VCons l [continuation]
   --   a received value ?p;q →  VCons "(,)" [forced p, forced q]
   --   a closed channel Wait →  any (the wait was performed)
-  E.ChoicePat _ (B.Identifier _ label) q ->
+  E.ChoicePat _ _ (B.Identifier _ label) q ->
     case v of
       VCons label' [cont] | label == label' -> matchPat cont q
       _                                     -> pure Nothing
-  E.InPat _ p1 p2 ->
+  E.InPat _ _ p1 p2 ->
     case v of
       VCons "(,)" [v1, v2] -> matchClause [p1, p2] [v1, v2]
       _                    -> pure Nothing
   E.TypeInPat _ _ p -> matchPat v p   -- the type input was already consumed
   E.WaitPat _       -> pure (Just empty)
 
+-- | Does a string value equal a string-literal pattern? Matches structurally,
+-- so the empty literal @""@ matches the empty list. (Contrast 'asString', which
+-- leaves the empty list undecided because @""@ and @[]@ share a representation;
+-- here typing guarantees @v@ is a String, so the empty list can only be @""@.)
+stringMatches :: String -> Value -> Bool
+stringMatches []       (VCons "[]"   [])              = True
+stringMatches (c : cs) (VCons "(::)" [VChar d, rest]) = c == d && stringMatches cs rest
+stringMatches _        _                              = False
+
 -- | Match a column of patterns left-to-right against a list of values, failing
 -- fast and unioning the bindings.
-matchClause :: [E.Pat] -> [Value] -> IO (Maybe ValueCtx)
+matchClause :: [E.KindedPat] -> [Value] -> IO (Maybe ValueCtx)
 matchClause []       []       = pure (Just empty)
 matchClause (p : ps) (v : vs) = do
   mb <- matchPat v p
@@ -97,7 +106,7 @@ forceColumns :: [Clause] -> [Value] -> IO [Value]
 forceColumns clauses = zipWithM forceCol (transpose (map (catMaybes . fst) clauses))
 
 -- | Force one position, given the patterns the clauses use there.
-forceCol :: [E.Pat] -> Value -> IO Value
+forceCol :: [E.KindedPat] -> Value -> IO Value
 forceCol pats val = case val of
   -- a channel reached by a session pattern: perform its effect (once)
   VChan _ ->
@@ -119,10 +128,10 @@ forceCol pats val = case val of
 -- too. (Mirrors the @VCons@ recursion in 'forceCol': commit to the branch the
 -- peer actually chose, then recurse into it. The type system guarantees the
 -- selected clauses agree on the continuation's session structure.)
-forceChoice :: [E.Pat] -> Value -> IO Value
+forceChoice :: [E.KindedPat] -> Value -> IO Value
 forceChoice pats (VChan c) = do
   (label, c') <- receiveLabel c
-  let conts = [ q | E.ChoicePat _ (B.Identifier _ l) q <- map stripAs pats, l == label ]
+  let conts = [ q | E.ChoicePat _ _ (B.Identifier _ l) q <- map stripAs pats, l == label ]
   forced <- forceCol conts (VChan c')
   pure (VCons label [forced])
 forceChoice _ v = pure v
@@ -130,8 +139,8 @@ forceChoice _ v = pure v
 -- | Perform a session pattern's effect on a channel, producing the forced value
 -- that 'matchPat' then matches purely. (External choice is handled by
 -- 'forceChoice', which needs the whole pattern column.)
-performEffect :: E.Pat -> Value -> IO Value
-performEffect (E.InPat _ p1 p2) (VChan c) = do
+performEffect :: E.KindedPat -> Value -> IO Value
+performEffect (E.InPat _ _ p1 p2) (VChan c) = do
   (v, c') <- receive c
   v'  <- forceCol [p1] v
   c'' <- forceCol [p2] (VChan c')
@@ -141,10 +150,10 @@ performEffect (E.TypeInPat _ _ p) (VChan c) = do
   forceCol [p] (VChan c')
 performEffect (E.WaitPat _) (VChan c) = do
   _ <- receive c                        -- wait for the peer to close
-  pure VUnit
+  pure (VCons "()" [])
 performEffect _ v = pure v
 
-isSessionPat :: E.Pat -> Bool
+isSessionPat :: E.KindedPat -> Bool
 isSessionPat = \case
   E.ChoicePat{} -> True
   E.InPat{}     -> True
@@ -153,7 +162,7 @@ isSessionPat = \case
   _             -> False
 
 -- | 'AsPat' is transparent for the purpose of finding the session structure.
-stripAs :: E.Pat -> E.Pat
+stripAs :: E.KindedPat -> E.KindedPat
 stripAs = \case
   E.AsPat _ _ p -> stripAs p
   p             -> p

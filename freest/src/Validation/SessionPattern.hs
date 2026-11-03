@@ -10,6 +10,7 @@ module Validation.SessionPattern ( checkNoVarsInSessionPatterns ) where
 
 import Syntax.Base ( Identifier, Level(..), Located(getSpan), Span )
 import Syntax.Expression qualified as E
+import Syntax.Kind qualified as K
 import UI.Error ( Error(..) )
 import Validation.Base ( Validation, ValidationState(..), runValidation, emptyValidationState )
 
@@ -36,7 +37,7 @@ collectInLetDecl = \case
 
 -- | For each parameter position across a function's clauses, gather the
 -- patterns and recursively check for variable/session mixes.
-collectInFnClauses :: [[Level E.Pat v m]] -> [Error]
+collectInFnClauses :: [[Level E.KindedPat v m]] -> [Error]
 collectInFnClauses = concatMap (checkPatColumn Nothing . expPats) . List.transpose
   where
     expPats col = [p | ExpLevel p <- col]
@@ -56,10 +57,12 @@ collectInExp = \case
   E.Pack _ _ e     -> collectInExp e
   E.Asc _ e _      -> collectInExp e
   E.Let _ ds e     -> concatMap collectInLetDecl ds ++ collectInExp e
-  E.Semi _ a b     -> collectInExp a ++ collectInExp b
   E.Case s _ cs    ->
     checkPatColumn (Just s) (map fst cs) ++ concatMap (collectInRHS . snd) cs
   E.If _ a b c     -> collectInExp a ++ collectInExp b ++ collectInExp c
+  E.List _ es      -> concatMap collectInExp es
+  E.SectionL _ e _   -> collectInExp e
+  E.SectionR _ _ _ e -> collectInExp e
   _                -> []
 
 collectInArg :: Level E.KindedExp t m -> [Error]
@@ -75,7 +78,7 @@ collectInArg = \case
 -- The optional @topSpan@ overrides the location used for a mix detected at
 -- this level (useful so a top-level case error points at the @case@ keyword
 -- rather than at the first branch's pattern).
-checkPatColumn :: Maybe Span -> [E.Pat] -> [Error]
+checkPatColumn :: Maybe Span -> [E.KindedPat] -> [Error]
 checkPatColumn topSpan col = topErr ++ concatMap (checkPatColumn Nothing) subColumns
   where
     groups = groupBySession col
@@ -88,8 +91,8 @@ checkPatColumn topSpan col = topErr ++ concatMap (checkPatColumn Nothing) subCol
             Nothing -> case col of
               p : _ -> getSpan p
               []    -> internalError "an empty column cannot contain a mix"
-    -- Same-shape groups: ChoicePats with the same identifier, DConsPats with
-    -- the same identifier, plus each non-Choice/DCons constructor.
+    -- Same-shape groups: ChoicePats with the same multiplicity and identifier,
+    -- DConsPats with the same identifier, plus each non-Choice/DCons constructor.
     sameShape  = List.groupBy ((==) `on` shapeKey)
                . List.sortOn shapeKey
                . filter (not . null . subPats)
@@ -98,10 +101,10 @@ checkPatColumn topSpan col = topErr ++ concatMap (checkPatColumn Nothing) subCol
 
 -- | Immediate sub-patterns of a 'Pat'. Empty for leaves and variables.
 -- 'AsPat' is transparent: @x\@p@ has the sub-patterns of @p@.
-subPats :: E.Pat -> [E.Pat]
+subPats :: E.KindedPat -> [E.KindedPat]
 subPats = \case
-  E.InPat _ p1 p2   -> [p1, p2]
-  E.ChoicePat _ _ p -> [p]
+  E.InPat _ _ p1 p2 -> [p1, p2]
+  E.ChoicePat _ _ _ p -> [p]
   E.TypeInPat _ _ p -> [p]
   E.PackPat _ _ p   -> [p]
   E.DConsPat _ _ ps -> ps
@@ -112,39 +115,41 @@ subPats = \case
 -- comparable sub-positions. 'AsPat' is transparent: @x\@p@ shares its key
 -- with @p@.
 data ShapeKey
-  = InShape
-  | ChoiceShape Identifier
+  = LinInShape
+  | UnInShape
+  | LinChoiceShape Identifier
+  | UnChoiceShape Identifier
   | TypeInShape
   | DConsShape Identifier
   | PackShape
   | LeafShape
   deriving (Eq, Ord)
 
-shapeKey :: E.Pat -> ShapeKey
+shapeKey :: E.KindedPat -> ShapeKey
 shapeKey = \case
-  E.InPat{}         -> InShape
-  E.ChoicePat _ i _ -> ChoiceShape i
+  E.InPat _ m _ _   -> if K.isUn m then UnInShape else LinInShape
+  E.ChoicePat _ m i _ -> (if K.isUn m then UnChoiceShape else LinChoiceShape) i
   E.TypeInPat{}     -> TypeInShape
   E.DConsPat _ i _  -> DConsShape i
   E.PackPat{}       -> PackShape
   E.AsPat _ _ p     -> shapeKey p
   _                 -> LeafShape
 
-groupBySession :: [E.Pat] -> [[E.Pat]]
+groupBySession :: [E.KindedPat] -> [[E.KindedPat]]
 groupBySession pats = choiceGroups ++ otherSessionGroup
   where
     -- Choice patterns, non-Choice session patterns, variables.
     -- Other patterns (data constructors, literals, ...) are ignored.
     (choices, nonChoiceSessions, vars) = partition3 pats
-    -- Choice patterns grouped by identifier, plus all variables.
+    -- Choice patterns grouped by multiplicity and identifier, plus all variables.
     choiceGroups      = map (++ vars)
-                      . List.groupBy ((==) `on` choiceId)
-                      . List.sortOn choiceId
+                      . List.groupBy ((==) `on` shapeKey)
+                      . List.sortOn shapeKey
                       $ choices
     -- Non-Choice session patterns plus all variables.
     otherSessionGroup = nonEmpty (nonChoiceSessions ++ vars)
     -- Split into (Choices, non-Choice sessions, variables); drop the rest.
-    partition3 :: [E.Pat] -> ([E.Pat], [E.Pat], [E.Pat])
+    partition3 :: [E.KindedPat] -> ([E.KindedPat], [E.KindedPat], [E.KindedPat])
     partition3 = foldr step ([], [], [])
       where
         step p (cs, ns, vs)
@@ -156,18 +161,14 @@ groupBySession pats = choiceGroups ++ otherSessionGroup
     nonEmpty :: [a] -> [[a]]
     nonEmpty xs = [xs | not (null xs)]
 
-    choiceId :: E.Pat -> Identifier
-    choiceId (E.ChoicePat _ i _) = i
-    choiceId (E.AsPat _ _ p)     = choiceId p
-    choiceId _                   = internalError "not a ChoicePat"
 
-containsVarPat, containsSessionPat, isMixedPat :: [E.Pat] -> Bool
+containsVarPat, containsSessionPat, isMixedPat :: [E.KindedPat] -> Bool
 containsVarPat = any isVar
 containsSessionPat = any isSessionPat
 isMixedPat g = containsVarPat g && containsSessionPat g
 
 -- | 'AsPat' is transparent in all three predicates: @x\@p@ is classified by @p@.
-isSessionPat, isChoicePat, isVar :: E.Pat -> Bool
+isSessionPat, isChoicePat, isVar :: E.KindedPat -> Bool
 
 isSessionPat (E.AsPat _ _ p) = isSessionPat p
 isSessionPat E.WaitPat{}     = True

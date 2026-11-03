@@ -5,12 +5,12 @@ Maintainer  :  freest-lang@listas.ciencias.ulisboa.pt
 
 This module contains data types to represent FreeST's higher-order kind system, 
 which combines multiplicities (the number of times a resource may be used) with
-prekinds (the context in which a resource can be used).
+baseKinds (the context in which a resource can be used).
 -}
 module Syntax.Kind
   ( Multiplicity(.., Un, VarM)
   , isLin, isUn
-  , Prekind(..)
+  , BaseKind(..)
   , Kind(..)
   , lt, ut, ls, us, lc, uc
   , Subsort(..)
@@ -19,6 +19,7 @@ module Syntax.Kind
   , isSession
   , isChannel
   , isProper
+  , hasMetavar
   , depth
   )
 where 
@@ -105,61 +106,61 @@ instance Show Multiplicity where
     Un{}       -> "*"
     Sup _ lvφs -> List.intercalate "+" (map (show . snd) lvφs)
 
--- 2. Prekinds
+-- 2. BaseKinds
 
-data Prekind = Top | Session | Channel | VarPK Variable
+data BaseKind = Top | Session | Channel | VarBK VarLv Variable
   deriving (Eq, Ord)
 
-instance Subsort Prekind where
+instance Subsort BaseKind where
   Session <: Top     = True
   Channel <: Top     = True
   Channel <: Session = True
-  pk1     <: pk2     = pk1 == pk2
+  bk1     <: bk2     = bk1 == bk2
 
-instance Join Prekind where
-  join ψ@VarPK{} _  = internalError ("prekind variable " ++ show ψ)
-  join _ ψ@VarPK{}  = internalError ("prekind variable " ++ show ψ)
+instance Join BaseKind where
+  join ψ@VarBK{} _  = internalError ("baseKind variable " ++ show ψ)
+  join _ ψ@VarBK{}  = internalError ("baseKind variable " ++ show ψ)
   join Channel Channel = Channel
   join Session Session = Session
   join Channel Session = Session
   join Session Channel = Session  
   join _       _       = Top
 
-instance Meet Prekind where
-  meet ψ@VarPK{} _  = internalError ("prekind variable " ++ show ψ)
-  meet _ ψ@VarPK{}  = internalError ("prekind variable " ++ show ψ)
+instance Meet BaseKind where
+  meet ψ@VarBK{} _  = internalError ("baseKind variable " ++ show ψ)
+  meet _ ψ@VarBK{}  = internalError ("baseKind variable " ++ show ψ)
   meet Channel _       = Channel
   meet _       Channel = Channel
   meet Session _       = Session
   meet _       Session = Session
   meet _       _       = Top
 
-instance Show Prekind where
+instance Show BaseKind where
   show = \case 
     Top     -> "T"
     Session -> "S"
     Channel -> "C"
-    VarPK ψ -> external ψ
+    VarBK _ ψ -> external ψ
 
 -- 3. Kinds
 
-data Kind 
-  = Proper Span Multiplicity Prekind 
-  | Arrow Span Kind Kind 
-  | Var Span Variable
+data Kind
+  = Proper Span Multiplicity BaseKind
+  | Arrow Span Kind Kind
+  | Var Span VarLv Variable
 
 instance Eq Kind where
   (==) = \cases
-    (Proper _ m1 pk1) (Proper _ m2 pk2) -> m1 == m2 && pk1 == pk2
+    (Proper _ m1 bk1) (Proper _ m2 bk2) -> m1 == m2 && bk1 == bk2
     (Arrow _ k11 k12) (Arrow _ k21 k22) -> k11 == k21 && k12 == k22
-    (Var _ τ1)        (Var _ τ2)        -> τ1 == τ2 
+    (Var _ _ τ1)      (Var _ _ τ2)      -> τ1 == τ2
     _                 _                 -> False
 
 instance Ord Kind where
   compare = \cases 
-    (Proper _ m1 pk1) (Proper _ m2 pk2) -> compare (m1, pk1)  (m2, pk2)
+    (Proper _ m1 bk1) (Proper _ m2 bk2) -> compare (m1, bk1)  (m2, bk2)
     (Arrow _ k11 k12) (Arrow _ k21 k22) -> compare (k11, k12) (k21, k22)
-    (Var _ τ1)        (Var _ τ2)        -> compare τ1         τ2
+    (Var _ _ τ1)      (Var _ _ τ2)      -> compare τ1         τ2
     k1                k2                -> compare (rank k1)  (rank k2)
     where rank = \case 
             Proper{} -> 0
@@ -167,30 +168,32 @@ instance Ord Kind where
             Var{}    -> 2
 
 instance Join Kind where
-  join (Proper s m1 pk1) (Proper _ m2 pk2) = 
-    Proper s (join m1 m2) (join pk1 pk2)
+  join (Proper s m1 bk1) (Proper _ m2 bk2) = 
+    Proper s (join m1 m2) (join bk1 bk2)
   join _ _ = internalError "join of non-proper kinds"
 
 instance Subsort Kind where
-  Proper _ m1 pk1 <: Proper _ m2 pk2 = m1 <: m2 && pk1 <: pk2
+  Proper _ m1 bk1 <: Proper _ m2 bk2 = m1 <: m2 && bk1 <: bk2
   Arrow _ k11 k12 <: Arrow _ k21 k22 = k21 <: k11 && k12 <: k22
-  Var _ τ1        <: Var _ τ2        = τ1 == τ2
+  Var _ _ τ1      <: Var _ _ τ2      = τ1 == τ2
   _               <: _               = False
 
 instance Located Kind where
-  getSpan = \case 
-    Proper s _ _ -> s 
+  getSpan = \case
+    Proper s _ _ -> s
     Arrow s _ _  -> s
+    Var s _ _    -> s
   setSpan s = \case
-    Proper _ m pk -> Proper s m pk 
-    Arrow _ k1 k2 -> Arrow s k1 k2 
+    Proper _ m bk -> Proper s m bk
+    Arrow _ k1 k2 -> Arrow s k1 k2
+    Var _ lv v    -> Var s lv v
   
 -- for debugging
 instance Show Kind where
   show = \case 
-    Proper _ m1 pk -> show m1 ++ " " ++ show pk
+    Proper _ m1 bk -> show m1 ++ show bk
     Arrow  _ k1 k2 -> "(" ++ show k1 ++ "->" ++ show k2 ++ ")"
-    Var    _ τ     -> show τ
+    Var    _ _ τ   -> show τ
 
 -- | Abbreviations for the six proper kinds
 lt, ut, ls, us, lc, uc :: Span -> Kind
@@ -208,18 +211,28 @@ isChannel, isSession, isProper :: Kind -> Bool
 isChannel (Proper _ _ Channel) = True
 isChannel _ = False
 
-isSession (Proper _ _ pk) = pk <: Session
+isSession (Proper _ _ bk) = bk <: Session
 isSession _ = False
 
 isProper = \case
   Proper{} -> True
   _        -> False
 
+-- | Whether a kind still contains a solvable (unsolved inference) metavariable.
+hasMetavar :: Kind -> Bool
+hasMetavar = \case
+  Proper _ m bk -> multMeta m || baseMeta bk
+  Arrow _ k1 k2 -> hasMetavar k1 || hasMetavar k2
+  Var _ lv _    -> solvable lv
+  where
+    multMeta = \case Sup _ atoms -> any (solvable . fst) atoms; _ -> False
+    baseMeta  = \case VarBK lv _ -> solvable lv; _ -> False
+
 depth :: Kind -> Int
 depth = \case
-  k@Proper{} -> 0
+  Proper{}    -> 0
   Arrow _ _ k -> 1 + depth k
-  k -> internalError ("kind " ++ show k)
+  k@Var{}     -> internalError ("no arity for kind variable" ++ show k)
 
 -- Could be snd . Expose.kindArrow, was it not for a circularity the graph of modules
 -- image :: Kind -> Kind

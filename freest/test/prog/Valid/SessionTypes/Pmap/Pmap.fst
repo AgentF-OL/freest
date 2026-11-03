@@ -1,6 +1,4 @@
-module Pmap where
-
-map, pmap : forall (a : 1T) (b : 1T) -> (a -> b) -> [a] -> [b]
+map, pmap : forall a b -> (a -> b) -> [a] -> [b]
 
 map @a @b _ [] = [] @b
 map @a @b f (x :: xs) = f x :: map f xs
@@ -9,10 +7,11 @@ pmap @a @b f xs =
   map receiveAndWait $
     map (\(x : a) -> forkWith (sendAndClose (f x))) xs
 
--- pmap f =
---   map receiveAndWait . map (\x -> forkWith (sendAndClose (f x)))
+_ =
+  print (pmap (2 *) ([1, 2, 3, 4, 5]))
 
-main : ()
-main =
-    print (pmap (2 *) ([1, 2, 3, 4, 5] @Int))
-
+{-
+Pmap builds an intermediate list of session channels, so it needs
+cross-list-kind maps (unrestricted->linear, linear->unrestricted);
+not expressible with two monomorphic lists (needs #m kind polymorphism).
+-}

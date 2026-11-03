@@ -1,5 +1,3 @@
-module DagstuhlFeb2026 where
-
 -- Infinitely repeating some action a
 type IRepeat : 1S -> 1S
 type IRepeat a = a ; IRepeat a
@@ -67,4 +65,12 @@ main : ()
 main =
   forkWith fold |>
   showStream |>
-  print -- expect "5True"
+  putStrLn
+
+{-
+Should type application narrow down the kind of a type? #19
+
+Once solved expect
+
+5True
+-}

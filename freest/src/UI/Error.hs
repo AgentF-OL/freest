@@ -14,6 +14,8 @@ module UI.Error
   , snippet
   , showErrors -- for testing
   , printErrors
+  , bt
+  , prettySpan -- for freesti
   )
 where
 
@@ -24,14 +26,12 @@ import Syntax.Expression qualified as E
 import Syntax.Kind qualified as K
 import Syntax.Provenance ( Origin(..) )
 import Syntax.Type.Kinded qualified as TK
-import Syntax.Type.Unkinded qualified as TU
+import Validation.Substitution ( betaRule )
 import Compiler.Bug ( internalError )
 
 import Data.List ( intercalate, nub )
 import Data.Map.Strict qualified as Map
 import Data.List qualified as List
-import Data.Char qualified as Char
-import Data.Maybe ( fromMaybe )
 import Debug.Trace ( traceM )
 import System.IO ( stderr, hPutStrLn )
 
@@ -44,27 +44,34 @@ data Error
       K.Multiplicity Origin
       K.Multiplicity Origin
   | CannotInferHigherKindedTypeApp Span K.Kind
+  | CannotSatisfyKindConstraint Origin K.Kind K.Kind
+  | CannotSatisfyBaseKindConstraint Origin K.BaseKind K.BaseKind
+  | InfiniteKind Origin Variable K.Kind
   | CannotSatisfyMultConstraint Span K.Multiplicity Origin K.Multiplicity Origin
   | CannotSynthesisePack Span E.KindedExp
-  | CannotSynthesisePat Span E.Pat
+  | CannotSynthesisePat Span E.KindedPat
   | CannotSynthesiseReceiveType Span
-  | CannotSynthesiseSelect Span Identifier
-  | CannotSynthesiseSendType Span
+  | CannotSynthesiseSelect Span K.Multiplicity Identifier
+  | CannotSynthesiseSendType Span TK.KindedType
+  | CannotSynthesiseSection Span (Either Variable Identifier)
   | ConflictingDefs Span (Level String String String) [Span]
   | ConsOutOfScope Span Identifier
   | DConsPatArgMismatch Span Identifier Int Int
+  | EquationArityMismatch Span Variable Int Int
   | ExpectsTooManyArgs Span TK.KindedType Int Int
   | ExpectsTooManyArgsK Span Identifier K.Kind
-  | ExposeError Span (Either E.Pat E.KindedExp) String TK.KindedType
+  | ExposeError Span (Either E.KindedPat E.KindedExp) String TK.KindedType TK.KindedType
+    -- ^ The type as written, then its weak head normal form (used for hints).
   | GivenTooManyArgs Span TK.KindedType Int Int
   | GivenTooManyArgsK Span TK.KindedType K.Kind Int Int
   | IllegalChoice Span Identifier TK.KindedType
   | KindMismatch Span K.Kind TK.KindedType
-  | KindMismatchK Span K.Kind K.Kind TU.ScopedType
   | KSigLacksBinding Span Identifier
-  | LacksKindSig Span Identifier
   | LacksTypeSig Span Variable
   | LexicalError Span Char
+  | IncludeCycle Span [FilePath]
+  | IncludeNotFound Span FilePath
+  | MalformedInclude Span
   | LinConsumedInGuard 
       Span 
       (Either Variable Identifier) 
@@ -76,30 +83,33 @@ data Error
       Span 
       K.Multiplicity
   | LinNotConsumedEvenly Span (Either Variable Identifier) TK.KindedType
-    (Either (Either Variable E.Pat) E.KindedExp)
-  | LinVarAtEndOfScope Span (Either Variable Identifier) TK.KindedType
+    (Either (Either Variable E.KindedPat) E.KindedExp)
+  | LinVarAtEndOfScope Span (Either Variable Identifier) TK.KindedType TK.KindedType
+    -- ^ The type as written, then its weak head normal form (used for hints).
   | MultipleConsDecls Span [Identifier]
   | MultipleFieldDecls Span [Identifier]
   | MultipleKindSigs Span [Identifier]
   | MultipleTypeDecls Span [Identifier]
   | MultipleVarDecls Span [Variable]
   | MultVarOutOfScope Span Variable
-  | NonLinPat Span E.Pat TK.KindedType
-  | ParseError Span (Token, [String])
+  | NonLinPat Span E.KindedPat TK.KindedType
+  -- what the offside rule made of the offending line, when that explains more
+  -- than the token the parser stopped at
+  | ParseError Span (Token, [String]) (Maybe LayoutNote)
   | PartiallyAppliedSelect Span Identifier
-  | PrekindMismatch Span K.Prekind TK.KindedType K.Kind
+  | BaseKindMismatch Span K.BaseKind TK.KindedType K.Kind
   | ProperKindMismatch Span TK.KindedType K.Kind
   | RestrictedFunInMutual Span Variable TK.KindedType
   | SigLacksDef Span Variable
   | TypeConsOutOfScope Span Identifier
-  | TypeMismatch Span TK.KindedType TK.KindedType (Either E.KindedExp E.Pat)
-  | TypeMismatchList Span TK.KindedType (Either E.KindedExp E.Pat)
-  | TypeMismatchChoice Span TK.KindedType Identifier E.Pat
-  | TypeMismatchExists Span TK.KindedType (Either E.Pat E.KindedExp) -- TODO: should be (Either E.Pat E.Exp) everywhere. Mnemonic: pats occur on LHSs, exps on RHSs
-  | TypeMismatchReceiveType Span TK.KindedType
-  | TypeMismatchSelect Span TK.KindedType Identifier E.KindedExp
-  | TypeMismatchSendType Span TK.KindedType
-  | TypeMismatchTuple Span Int TK.KindedType (Either E.KindedExp E.Pat)
+  | TypeMismatch Span TK.KindedType TK.KindedType (Either E.KindedExp E.KindedPat)
+  | TypeMismatchList Span TK.KindedType (Either E.KindedExp E.KindedPat)
+  | TypeMismatchChoice Span TK.KindedType Identifier E.KindedPat
+  | TypeMismatchExists Span TK.KindedType (Either E.KindedPat E.KindedExp) -- TODO: should be (Either E.KindedPat E.Exp) everywhere. Mnemonic: pats occur on LHSs, exps on RHSs
+  | TypeMismatchReceiveType Span TK.KindedType (Maybe TK.KindedType)
+  | TypeMismatchSelect Span K.Multiplicity TK.KindedType Identifier E.KindedExp
+  | TypeMismatchSendType Span TK.KindedType TK.KindedType (Maybe TK.KindedType)
+  | TypeMismatchTuple Span Int TK.KindedType (Either E.KindedExp E.KindedPat)
   | TypeVarOutOfScope Span Variable
   | UnexpectedArg 
       Span
@@ -115,7 +125,10 @@ data Error
       [Variable]
       (Either K.Kind TK.KindedType)
   | HigherOrderTypeRHS Span Identifier
-  | MixedSessionVarPats Span E.Pat E.Pat
+  | MixedSessionVarPats Span E.KindedPat E.KindedPat
+  | UnexpectedEOF Span
+    -- ^ Alex ran past the end of the file with no more input to inspect —
+    -- typically an unterminated string literal or block comment.
 
 -- | Errors can be tracked to the source code.
 instance Located Error where
@@ -124,29 +137,35 @@ instance Located Error where
   getSpan = \case
     ArrowMultMismatch s _ _ _ _ _ _ -> s
     CannotInferHigherKindedTypeApp s _ -> s
+    CannotSatisfyKindConstraint o _ _ -> getSpan o
+    CannotSatisfyBaseKindConstraint o _ _ -> getSpan o
+    InfiniteKind o _ _ -> getSpan o
     CannotSatisfyMultConstraint s _ _ _ _ -> s
     CannotSynthesisePack s _ -> s
     CannotSynthesisePat s _ -> s
     CannotSynthesiseReceiveType s -> s
-    CannotSynthesiseSelect s _ -> s
-    CannotSynthesiseSendType s -> s
+    CannotSynthesiseSelect s _ _ -> s
+    CannotSynthesiseSendType s _ -> s
+    CannotSynthesiseSection s _ -> s
     ConflictingDefs s _ _ -> s
     ConsOutOfScope s _ -> s
     DConsPatArgMismatch s _ _ _ -> s
+    EquationArityMismatch s _ _ _ -> s
     ExpectsTooManyArgs s _ _ _ -> s
     ExpectsTooManyArgsK s _ _ -> s
-    ExposeError s _ _ _ -> s
+    ExposeError s _ _ _ _ -> s
     GivenTooManyArgs s _ _ _ -> s
     GivenTooManyArgsK s _ _ _ _ -> s
     IllegalChoice s _ _ -> s
     KindMismatch s _ _ -> s
-    KindMismatchK s _ _ _ -> s
     KSigLacksBinding s _ -> s
-    LacksKindSig s _ -> s
     LacksTypeSig s _ -> s
     LexicalError s _ -> s
+    IncludeCycle s _ -> s
+    IncludeNotFound s _ -> s
+    MalformedInclude s -> s
     LinNotConsumedEvenly s _ _ _ -> s
-    LinVarAtEndOfScope s _ _ -> s
+    LinVarAtEndOfScope s _ _ _ -> s
     LinConsumedInGuard s _ _ -> s
     LinConsumedInUnFun s _ _ _ _ -> s
     MultipleConsDecls s _ -> s
@@ -156,8 +175,8 @@ instance Located Error where
     MultipleVarDecls s _ ->  s
     MultVarOutOfScope s _ -> s
     NonLinPat s _ _ -> s
-    ParseError s _ -> s
-    PrekindMismatch s _ _ _ -> s
+    ParseError s _ _ -> s
+    BaseKindMismatch s _ _ _ -> s
     ProperKindMismatch s _ _ -> s
     RestrictedFunInMutual s _ _ -> s
     SigLacksDef s _ -> s
@@ -166,9 +185,9 @@ instance Located Error where
     TypeMismatchExists s _ _ -> s
     TypeMismatchList s _ _ -> s
     TypeMismatchChoice s _ _ _ -> s
-    TypeMismatchReceiveType s _ -> s
-    TypeMismatchSelect s _ _ _ -> s
-    TypeMismatchSendType s _ -> s
+    TypeMismatchReceiveType s _ _ -> s
+    TypeMismatchSelect s _ _ _ _ -> s
+    TypeMismatchSendType s _ _ _ -> s
     TypeMismatchTuple s _ _ _ -> s
     TypeVarOutOfScope s _ -> s
     UnexpectedArg s _ _ _ -> s
@@ -178,6 +197,7 @@ instance Located Error where
     PolymorphicTypeRecursion s _ _ _ -> s
     HigherOrderTypeRHS s _ -> s
     MixedSessionVarPats s _ _ -> s
+    UnexpectedEOF s -> s
 
   -- There should be no need to relocate an error. (At least for now...)
   setSpan = internalError "span not settable for Error type."
@@ -190,16 +210,14 @@ type Source = Map.Map FilePath [String]
 
 getFromSpan :: Located a => Source -> a -> String
 getFromSpan src (getSpan -> (Span fp (sl, sc) (_, ec))) =
-  take (ec - sc) . drop (sc - 1) $ lookupSrc src fp !! (sl - 1)
+  case drop (sl - 1) (lookupSrc src fp) of
+    (l : _) -> take (ec - sc) (drop (sc - 1) l)
+    []      -> ""
 
-getLineFromSpan :: Located a => Source -> a -> String
-getLineFromSpan src (getSpan -> Span fp (sl, _) (_, _)) =
-  lookupSrc src fp !! (sl - 1)
-
+-- | The source lines of a file, or @[]@ if it is not in the map (e.g. a
+-- synthetic or inferred span), so error rendering degrades instead of crashing.
 lookupSrc :: Source -> FilePath -> [String]
-lookupSrc src fp = fromMaybe
-  (internalError $ "file not in source map: " ++ fp)
-  (src Map.!? fp)
+lookupSrc src fp = Map.findWithDefault [] fp src
 
 -- | Collapse the standard-library install path to a stable, readable suffix,
 -- e.g. ".../share/.../StandardLib/Prelude.fst" becomes "StandardLib/Prelude.fst".
@@ -213,42 +231,38 @@ prettyPath fp =
 prettySpan :: Span -> String
 prettySpan s = prettyPath (filepath s) ++ drop (length (filepath s)) (show s)
 
+-- | The offending line under its own number, with carets under the span. A span
+-- that runs past the last line (an error at the end of the file) has no line to
+-- show, so only the position is reported.
 snippet :: Located a => Source -> a -> Bool -> String
 snippet src (getSpan -> s@(Span fp (sl, sc) (el, ec))) showSpan =
-  unlines ([ spaces (n + 1) ++ prettySpan s | showSpan ] ++
-           [ spaces n ++ sep
-           , rpad n ' ' (show sl) ++ sep ++ l
-           , spaces n ++ sep ++ spaces (sc - 1)
-             ++ if sl == el then carets (ec - sc)
-                else carets (length (strip (drop (sc - 1) l))) ++ "..."
-           ])
+  unlines ([ spaces (n + 1) ++ prettySpan s | showSpan ] ++ maybe [] withCarets line)
   where
     sep = " | "
     n = length (show el)
-    srcf = lookupSrc src fp
-    l | null srcf = []
-      | otherwise = srcf !! (min (length srcf) sl - 1)
+    line = case drop (sl - 1) (lookupSrc src fp) of
+      (l : _) -> Just l
+      []      -> Nothing
+    withCarets l =
+      [ spaces n ++ sep
+      , rpad n ' ' (show sl) ++ sep ++ l
+      , spaces n ++ sep ++ spaces (sc - 1)
+        ++ if sl == el then carets (ec - sc)
+           else carets (length (strip (drop (sc - 1) l))) ++ "..."
+      ]
     spaces x = replicate x ' '
     carets x = replicate x '^'
 
-multiLineSnippet :: Located a => Source -> a -> String
-multiLineSnippet src (getSpan -> Span fp (sl, sc) (el, ec)) =
-  unlines $ (spaces n ++ sep) : zipWith lineCarets [sl..] ls
-  where
-    n = length (show el)
-    sep = " | "
-    ls  = take (el - (sl - 1)) $ drop (sl - 1) $ lookupSrc src fp
-    spaces x = replicate x ' '
-    lineCarets i li =
-      rpad n ' ' (show i) ++ sep ++ li ++ "\n" ++ spaces n ++ sep
-      ++ if | sl == el  -> spaces (sc - 1) ++ carets (ec - sc)
-            | i  == sl  -> spaces (sc - 1) ++ caretsFrom (strip (drop (sc - 1) li))
-            | i  == el  -> ws ++ carets (ec - 1 - length ws)
-            | otherwise -> ws ++ caretsFrom (strip li')
-      where
-        carets x = replicate x '^'
-        caretsFrom = map (const '^')
-        (ws, li') = List.span Char.isSpace li
+-- | How a layout block is referred to in a parse error.
+nameBlock :: Block -> String
+nameBlock (Block Nothing _)   = "the top-level block"
+nameBlock (Block (Just kw) _) = "the " ++ bt kw ++ " block"
+
+-- | The same as `nameBlock`, placed at the first token the block is aligned on.
+-- A block left empty never got one, so it is only ever named.
+describeBlock :: Block -> String
+describeBlock b@(Block _ (l, c)) =
+  nameBlock b ++ " starting at " ++ show l ++ ":" ++ show c
 
 header :: Located a => String -> a -> String
 header sort (getSpan -> s) = prettySpan s ++ ": " ++ sort ++ ":"
@@ -259,6 +273,32 @@ errorHeader = header "error"
 makeError :: Located a => Source -> a -> String -> String
 makeError src (getSpan -> s) msg =
   errorHeader s ++ "\n" ++ msg ++ "\n" ++ snippet src s False
+
+-- | Does a type still mention a solvable (unification) type variable? Such a
+-- variable is one the checker never resolved — it unparses to @_@. In a type
+-- mismatch it signals that a type argument could not be inferred, a limitation
+-- of type inference that an explicit type argument works around. All the session
+-- constructors are 'App' synonyms, so the traversal only needs the three
+-- underlying shapes.
+hasSolvableTypeVar :: TK.KindedType -> Bool
+hasSolvableTypeVar = \case
+  TK.Var _ _ lv _ -> solvable lv
+  TK.Abs _ _ t    -> hasSolvableTypeVar t
+  TK.App _ t ts   -> hasSolvableTypeVar t || any hasSolvableTypeVar ts
+  _               -> False
+
+-- | Does a type contain a universal quantifier (a @forall@)? When one side of a
+-- mismatch has one and the other does not, the likely cause is a polymorphic
+-- value (e.g. @Nothing : forall a. Maybe a@) whose leading quantifier was never
+-- instantiated — another limitation of type inference, fixed by an explicit type
+-- argument or annotation on that value.
+hasForall :: TK.KindedType -> Bool
+hasForall = \case
+  TK.AppForall _ _ _ _ -> True
+  TK.ForallM _ _ _ _   -> True
+  TK.Abs _ _ t         -> hasForall t
+  TK.App _ t ts        -> hasForall t || any hasForall ts
+  _                    -> False
 
 toMessage :: Source -> Error -> String
 toMessage src = \case
@@ -274,9 +314,17 @@ toMessage src = \case
         | otherwise = ""
   CannotInferHigherKindedTypeApp s k -> makeError src s
     "Cannot infer a higher-kinded type argument"
-    ++ "The type parameter has kind " ++ bt (unparse k) ++ ", declared at"
+    ++ "The type parameter has kind " ++ bt (tidyK k) ++ ", declared at"
     ++ locateSpan src (getSpan k)
     ++ "Higher-kinded type arguments are not inferred; please provide them explicitly"
+  CannotSatisfyKindConstraint o k1 k2 -> kindMismatch src (getSpan o) k2 k1
+  CannotSatisfyBaseKindConstraint o p1 p2 -> makeError src (getSpan o)
+    ("Expected a " ++ prettyBk p2 ++ ", but got a " ++ prettyBk p1)
+  InfiniteKind o v k -> makeError src (getSpan o)
+    ("Cannot construct the infinite kind " ++ bt (va ++ " ~ " ++ vk))
+    where e  = mkTidy (('k', v) : kMetas k)
+          va = tidyName e v
+          vk = tidyKind e k
   CannotSatisfyMultConstraint s m1 o1 m2 o2 -> makeError src s
     "Could not infer consistent multiplicities for this application"
     ++ "Could not match multiplicity " ++ multSide src m1 o1
@@ -284,14 +332,21 @@ toMessage src = \case
   CannotSynthesisePack s e -> makeError src s
     "Could not infer a type for this package expression"
   CannotSynthesisePat s p -> makeError src s
-    ("Could not infer a type for pattern " ++ bt (show p))
-    ++ "Consider giving it a type annotation: " ++ bt ("(" ++ show p ++ " : T)")
+    ("Could not infer a type for pattern " ++ bt (getFromSpan src p))
+    ++ "Consider giving it a type annotation: " ++ bt ("(" ++ getFromSpan src p ++ " : T)")
   CannotSynthesiseReceiveType s -> makeError src s
     "Could not infer a type for this `receiveType` expression"
-  CannotSynthesiseSelect s id -> makeError src s
-    "Could not infer a type for this `select` expression"
-  CannotSynthesiseSendType s -> makeError src s
-    "Could not infer a type for this `sendType` expression"
+    ++ synthHint "receiveType" "(?type (a : k). U) -> (exists (a : k), U)"
+  CannotSynthesiseSelect s m id -> makeError src s
+    ("Could not infer a type for this " ++ bt (selectOp m ++ " " ++ show id) ++ " expression")
+    ++ synthHint (selectOp m ++ " " ++ show id) ("+{" ++ show id ++ ": U, ...} -> U")
+  CannotSynthesiseSendType s t -> makeError src s
+    ("Could not infer a type for this " ++ bt ("sendType @" ++ unparse t) ++ " expression")
+    ++ synthHint ("sendType @" ++ unparse t) ("!type a. W -> W[" ++ unparse t ++ "/a]")
+  CannotSynthesiseSection s op -> makeError src s
+    ("Could not infer a type for this section over " ++ bt (either show show op))
+    ++ "Its operator is polymorphic, so the omitted operand's type is ambiguous here.\n"
+    ++ "Consider giving the section a type annotation."
   ConflictingDefs s xa ss -> makeError src s
     ("Conflicting definitions for " ++ case xa of
       ExpLevel x -> "variable " ++ bt x
@@ -302,7 +357,10 @@ toMessage src = \case
     ("Constructor out of scope: " ++ bt (show i))
   DConsPatArgMismatch s i n m -> makeError src s
     ("Constructor " ++ bt (show i) ++ " takes " ++ show n
-      ++ " arguments, but it was given " ++ show m)
+      ++ " arguments, but it is given " ++ show m)
+  EquationArityMismatch s f n m -> makeError src s
+    ("Equations for " ++ bt (external f) ++ " have different numbers of value parameters:"
+      ++ " this equation binds " ++ show m ++ ", but an earlier one binds " ++ show n)
   ExpectsTooManyArgs s t n m -> makeError src s
      ("This function expects " ++ prettyArgs n
        ++ ", but its type " ++ bt (unparse t) ++ " takes"
@@ -311,53 +369,51 @@ toMessage src = \case
         n -> " only " ++ show n)
   ExpectsTooManyArgsK s i k -> makeError src s
     ("Type " ++ bt (show i) ++ " expects too many arguments, its kind "
-      ++ bt (unparse k) ++ " takes only " ++ show (K.depth k))
-  ExposeError s pe msg t -> makeError src s
+      ++ bt (tidyK k) ++ " takes only " ++ show (K.depth k))
+  ExposeError s pe msg t whnf -> makeError src s
     case pe of
-      Left _  -> "Cannot match this pattern against the expected type " ++ bt (unparse t)
-      Right _ -> "Expected " ++ msg ++ ", but got an expression of type " ++ bt (unparse t)
-    ++ case pe of Left _ -> "(It matches " ++ msg ++ ")"; Right{} -> ""
+      Left _  -> "Cannot match this pattern against the expected type " ++ bt (unparse (unRedex t))
+      Right _ -> "Expected " ++ msg ++ ", but got an expression of type " ++ bt (unparse (unRedex t))
+    ++ case pe of
+         Left _  -> "(It matches " ++ msg ++ ")"
+                 ++ maybe "" (("\n  hint: this type is matched by " ++) . bt) (patternHint whnf)
+         Right _ -> maybe "" (("  hint: consume this channel with " ++) . bt) (sessionHint whnf)
   GivenTooManyArgs s t n m -> makeError src s
     ("Got " ++ prettyModifiedArgs "unexpected" (m - n))
-    ++ "(Cannot apply an expression of type " ++ bt (unparse t) ++ " to "
-    ++ thirdPerson (m - n) ++ ")"
+    ++ "(This expression cannot be applied to further arguments: it has type " ++ bt (unparse t)
+    ++ ", which is not a function type)"
   GivenTooManyArgsK s t k n m -> makeError src s
     ("Got " ++ prettyModifiedArgs "unexpected" (m - n))
-    ++ "(A type of kind " ++ bt (unparse k) ++ " cannot be applied to further arguments)"
+    ++ "(A type of kind " ++ bt (tidyK k) ++ " cannot be applied to further arguments)"
   IllegalChoice s i t -> makeError src (getSpan i)
     ("Choice " ++ bt (show i) ++ " is not offered by type " ++ bt (unparse t))
-  KindMismatch s k1 t -> makeError src s
-    -- TODO: this would give us weird errors, like "Expected 1 less argument to
-    -- type `Int`" with `type T : *T -> *T` and `type T = Int`
-    -- if | K.depth k1 < K.depth k2 ->
-    --      ("Expected " ++ prettyMoreArgs diff ++ " to type " ++ bt (unparse t))
-    --    | K.depth k1 > K.depth k2 ->
-    --      ("Expected " ++ prettyLessArgs (- diff) ++ " to type " ++ bt (unparse t))
-    --    | otherwise ->
-      ("Couldn't match expected kind " ++ bt (unparse k1)
-        ++ " with actual kind " ++ bt (unparse $ TK.kindOf t))
-    -- where
-    --   diff = (K.depth k2 - K.depth k1)
-  KindMismatchK s k1 k2 t -> makeError src s
-      ("Couldn't match expected kind " ++ bt (unparse k1)
-        ++ " with actual kind " ++ bt (unparse k2))
-    -- where
-    --   diff = (K.depth k2 - K.depth k1)
+  KindMismatch s k1 t -> kindMismatch src s k1 (TK.kindOf t)
+    ++ kindMismatchHint (unparse t) (TK.kindOf t) k1
   KSigLacksBinding s i -> makeError src s
     ("The kind signature for type " ++ bt (show i)
       ++ " lacks an accompanying binding")
-  LacksKindSig s i -> makeError src s
-    ("Type " ++ bt (show i) ++ " lacks a kind signature")
   LacksTypeSig s x -> makeError src s
     ("Function " ++ bt (external x) ++ " is missing a type signature")
   LexicalError span c -> makeError src span
     ("Unsupported character " ++ bt [c])
-  LinVarAtEndOfScope s xi _ -> makeError src s
-    ("Linear " ++ prettyVarCons xi ++ " was not consumed")
+  UnexpectedEOF s -> makeError src s
+    "Unexpected end of input (an unterminated string literal or comment?)"
+  IncludeCycle s files -> makeError src s
+    ("Include cycle: " ++ intercalate " -> " files)
+  IncludeNotFound s path -> makeError src s
+    ("Cannot find included file \"" ++ path ++ "\"")
+  MalformedInclude s -> makeError src s
+    "Malformed INCLUDE pragma, expected {-# INCLUDE \"path\" #-}"
+  LinVarAtEndOfScope s xi t whnf ->
+    makeError src s
+      ("Linear " ++ prettyVarCons xi ++ " of type " ++ bt (unparse (unRedex t)) ++ " is not consumed")
+    ++ case sessionHint whnf of
+         Just op -> "  hint: consume this channel with " ++ bt op ++ "\n"
+         Nothing -> ""
   LinConsumedInGuard s xi t -> errorHeader s ++ "\n"
       ++ ((case m' of
         K.Lin{} -> "Linear " ++ prettyVarCons xi ++ " of "
-        _ -> "Potentially linear " ++ prettyVarCons xi ++ " with multiplicity " ++ bt (unparse m') ++ " and ")
+        _ -> "Potentially linear " ++ prettyVarCons xi ++ " with multiplicity " ++ bt (tidyM m') ++ " and ")
       ++ "type " ++ bt (unparse t) ++ ", bound at\n"
       ++ snippet src xi True
       ++ " cannot be consumed inside a guard")
@@ -368,16 +424,16 @@ toMessage src = \case
   LinConsumedInUnFun s xi t fe m -> errorHeader s ++ "\n" 
       ++ ((case m' of 
         K.Lin{} -> "Linear " ++ prettyVarCons xi ++ " of "
-        _ -> "Potentially linear " ++ prettyVarCons xi ++ " with multiplicity " ++ bt (unparse m') ++ " and ")
+        _ -> "Potentially linear " ++ prettyVarCons xi ++ " with multiplicity " ++ bt (tidyM m') ++ " and ")
       ++ "type " ++ bt (unparse t) ++ ", bound at\n"
       ++ snippet src xi True
-      ++ " was consumed in body of "
+      ++ " is consumed in body of "
       ++ (case m of 
         K.Un{} -> "an unrestricted function"
-        _      -> "a function with multiplicity " ++ bt (unparse m))
+        _      -> "a function with multiplicity " ++ bt (tidyM m))
       ++ "\n" ++ snippet src fe True)
-    ++ "(This would allow duplicating or discarding it. "
-    ++ "Consider using a restricted function instead.)"
+    ++ "(This would allow duplicating or discarding the value. "
+    ++ "Consider using a linear function instead.)"
     where 
       m' = case TK.kindOf t of
         K.Proper _ m _ -> m
@@ -407,25 +463,62 @@ toMessage src = \case
   NonLinPat s p t -> makeError src s
     ("Non-linear pattern for" ++ case TK.kindOf t of
       K.Proper _ K.Lin{} _ -> " linear type " ++ bt (unparse t)
-      K.Proper _ m _       -> " potentially linear type " ++ bt (unparse t) ++ " with multiplicity " ++ bt (unparse m)
+      K.Proper _ m _       -> " potentially linear type " ++ bt (unparse t) ++ " with multiplicity " ++ bt (tidyM m)
       _ -> internalError "pattern with non-proper type")
-  ParseError s (_, ss) -> makeError src s
-    "Parse error"
-    ++ case ss of
-      [] -> ""
-      [x] -> "(Expected " ++ x ++ ")"
-      ss  -> "(Expected one of: " ++ intercalate ", " ss ++ ")"
-  PrekindMismatch s pk t k -> makeError src s
-    ("Expected a " ++ prettyPk pk ++ ", but got " ++
+  ParseError s (tk, ss) note -> makeError src s ("Parse error" ++ onInput)
+    ++ intercalate "\n" (case tk of
+      -- the offending token is invisible: the offside rule closing a block. The
+      -- expected tokens are the ones that would have continued that block, so
+      -- they mislead rather than help
+      TkVClose _ (Just (Outdented p)) -> [outdentedHint p]
+      TkVClose _ (Just (FileEnded p)) -> expected ++ [fileEndedHint p]
+      _                               -> expected ++ noteHint)
+    where
+      -- the layout tokens are invisible, so there is no input to point at
+      onInput = case tk of
+        TkVOpen{}  -> ""
+        TkVPipe{}  -> ""
+        TkVClose{} -> ""
+        TkEOF{}    -> ""
+        _          -> " on input " ++ bt (getFromSpan src s)
+      expected = case ss of
+        []  -> []
+        [x] -> ["(Expected " ++ x ++ ")"]
+        ss  -> ["(Expected one of: " ++ intercalate ", " ss ++ ")"]
+      outdentedHint b =
+        "  hint: this closes " ++ describeBlock b
+        ++ ", which you probably did not intend; to stay inside it, indent past column "
+        ++ show (blockColumn b)
+      fileEndedHint b =
+        "  hint: the file ends inside " ++ describeBlock b
+      noteHint = case note of
+        Nothing -> []
+        Just (Continues b) ->
+          [ "  hint: line " ++ show line ++ " is indented past column "
+            ++ show (blockColumn b) ++ ", so it continues an item of " ++ describeBlock b
+            ++ "; if you intend to start a new item, align it with column "
+            ++ show (blockColumn b) ]
+        Just (EmptyBlock b enclosing) ->
+          [ "  hint: " ++ nameBlock b ++ " is empty, line " ++ show line
+            ++ " not being indented past column " ++ show (blockColumn enclosing)
+            ++ "; indent it further to put something in the block" ]
+      line = fst (startPos s)
+  BaseKindMismatch s bk t k -> makeError src s
+    ("Expected a " ++ prettyBk bk ++ ", but got " ++
       (case k of
-        K.Proper _ m pk -> prettyPk pk ++ " " ++ bt (unparse t)
-        k               -> bt (unparse t) ++ " of kind " ++ bt (unparse k))
+        K.Proper _ m bk -> prettyBk bk ++ " " ++ bt (unparse t)
+        k               -> bt (unparse t) ++ " of kind " ++ bt (tidyK k))
       ++ " instead")
-  ProperKindMismatch s t k -> makeError src s
-    ("Expected " ++ prettyMoreArgs arity ++ " to " ++ bt (unparse t))
-    ++ "(Expected a proper type, but got " ++ bt (unparse t)
-    ++ " of kind " ++ bt (unparse k) ++ ")"
-    where arity = K.depth k
+    ++ takenFrom src s ("Its kind " ++ bt (unparse k) ++ " is ") k
+  ProperKindMismatch s t k -> case k of
+    -- an unsolved kind variable: inference could not determine a proper kind here
+    K.Var{} -> makeError src s
+      ("Could not infer a proper kind for " ++ bt (unparse t)
+       ++ "; consider annotating it")
+    _ -> makeError src s
+      ("Expected " ++ prettyMoreArgs (K.depth k) ++ " to " ++ bt (unparse t))
+      ++ "(Expected a proper type, but got " ++ bt (unparse t)
+      ++ " of kind " ++ bt (tidyK k) ++ ")" ++ takenFrom src s "\nIts kind is " k
   RestrictedFunInMutual s x t -> makeError src s
     ("Mutually recursive function " ++ bt (external x)
       ++ " must be unrestricted, but has type " ++ bt (unparse t))
@@ -438,7 +531,7 @@ toMessage src = \case
                               Right i -> "constructor " ++ bt (show i))
       ++ " of type " ++ bt (unparse t) ++", bound at\n"
       ++ snippet src xi True
-      ++ "was not consumed evenly among the branches of a"
+      ++ "is not consumed evenly among the branches of a"
       ++ (case fpe of
         Left (Left  x) -> " function definition"
         Left (Right p) -> " value definition"
@@ -448,14 +541,24 @@ toMessage src = \case
           _        -> "n expression") ++ "\n"
       ++ snippet src fpe True)
   TypeMismatch s t u _ -> makeError src s "Type mismatch:"
-    ++ "Couldn't match expected type " ++ bt (unparse t) ++ fromClause s src t
-    ++ "with actual type " ++ bt (unparse u) ++ fromClause s src u
+    ++ "Couldn't match expected type " ++ bt (unparse t) ++ takenFrom src s ", " t
+    ++ "with actual type " ++ bt (unparse u) ++ takenFrom src s ", " u
+    ++ inferenceHint
     where
-    fromClause primary src ty
-      | sp == primary                      = "\n"
-      | not (Map.member (filepath sp) src) = "\n"
-      | otherwise                          = ", from:\n" ++ snippet src sp True
-      where sp = getSpan ty
+    -- Only when a type argument was left unresolved (it shows as `_`): the
+    -- mismatch may stem from a limitation of type inference, and an explicit
+    -- type argument is the fix. Stays silent on ordinary mismatches.
+    inferenceHint
+      | hasSolvableTypeVar t || hasSolvableTypeVar u =
+          "Type inference could not determine a type argument here "
+          ++ "(shown as `_`).\nConsider annotating the application with an explicit "
+          ++ "type argument (e.g. `f @a`),\nbinding the signature's type variables with "
+          ++ "`@a` patterns on the left-hand side."
+      | hasForall t /= hasForall u =
+          "A polymorphic value was not instantiated here "
+          ++ "(note the `forall`).\nConsider giving it an explicit type argument "
+          ++ "(e.g. `Nothing @a`) or a type annotation."
+      | otherwise = ""
   TypeMismatchExists s t poe -> makeError src s
     ("Couldn't match expected type " ++ bt (show t) ++ " with a package "
       ++ case poe of Left  p -> "pattern"
@@ -466,15 +569,20 @@ toMessage src = \case
   TypeMismatchChoice s t i p -> makeError src s
     ("Couldn't match expected type " ++ bt (unparse t)
       ++ " with choice pattern " ++ bt (getFromSpan src i))
-  TypeMismatchReceiveType s t -> makeError src s
+  TypeMismatchReceiveType s t dom -> makeError src s
     ("Couldn't match expected type " ++ bt (unparse t)
       ++ " with a `receiveType` expression")
-  TypeMismatchSelect s t i _ -> makeError src s
+    ++ mustConsume "receiveType" ("a " ++ bt "?type a. S" ++ " channel") dom
+  TypeMismatchSelect s m t i _ -> makeError src s
     ("Couldn't match expected type " ++ bt (unparse t)
-      ++ " with a `select` expression")
-  TypeMismatchSendType s t -> makeError src s
+      ++ " with a " ++ bt op ++ " expression")
+    ++ mustConsume op "an internal choice" Nothing
+    where op = selectOp m ++ " " ++ show i
+  TypeMismatchSendType s u t dom -> makeError src s
     ("Couldn't match expected type " ++ bt (unparse t)
-      ++ " with a `sendType` expression")
+      ++ " with a " ++ bt op ++ " expression")
+    ++ mustConsume op ("a " ++ bt "!type a. S" ++ " channel") dom
+    where op = "sendType @" ++ unparseArg u
   TypeMismatchTuple s n t _ -> makeError src s
     ("Couldn't match expected type " ++ bt (unparse t) ++ " with "
       ++ (case n of 0 -> "()"
@@ -528,7 +636,100 @@ toMessage src = \case
     ++ snippet src vp True
     ++ "(Session and variable patterns cannot appear together in the same match)"
   where
-  thirdPerson = \case 1 -> "it"; _ -> "them"
+  -- | Explain the shape a bare, unapplied session operation must be ascribed.
+  mustConsume :: String -> String -> Maybe TK.KindedType -> String
+  mustConsume op chan = \case
+    Nothing ->
+      "(A " ++ bt op ++ " expression is a function; its type must be an arrow "
+      ++ "whose domain is " ++ chan ++ ")"
+    Just t ->
+      "(A " ++ bt op ++ " expression consumes " ++ chan ++ "; here it is given "
+      ++ bt (unparse (unRedex t)) ++ ")"
+      ++ maybe "" (("\n  hint: consume this channel with " ++) . bt) (sessionHint t)
+
+  -- | Collapse the type-level β-redexes that 'Validation.Normalisation'
+  -- leaves behind when computing 'Dual' of a @!type@/@?type@ quantifier (rule
+  -- R-DQuant): @Dual ((λa. T) U)@ instead of @Dual (T[U/a])@. That shape is
+  -- always a compiler-introduced artifact of the Dual/quantifier interplay
+  -- and never something written in source, so reducing it on sight is always
+  -- safe and purely cosmetic. Unlike full 'Validation.Normalisation.normalise'
+  -- it does not unfold named type synonyms, so a type like @Dual SharedCounter@
+  -- keeps showing the familiar name instead of its expanded body.
+  unRedex :: TK.KindedType -> TK.KindedType
+  unRedex = \case
+    TK.App _ h@TK.Abs{} us  -> unRedex (betaRule h us)
+    TK.AppDual s t          -> TK.AppDual s (unRedex t)
+    TK.AppSemi s t u        -> TK.AppSemi s (unRedex t) (unRedex u)
+    TK.AppQuantS s p a k t  -> TK.AppQuantS s p a k (unRedex t)
+    TK.AppLinChoice s p lts -> TK.AppLinChoice s p [(i, unRedex t) | (i, t) <- lts]
+    t                       -> t
+
+  -- Tidying (GHC-style cosmetics). Kind inference leaves solvable metavariables
+  -- in a type's kind precisely when it cannot pin one down; those must never
+  -- reach the user as raw internal names. Following GHC's tidying, we rewrite
+  -- each solvable metavariable to a short, generated name — @k0@/@m0@/@p0@ by
+  -- sort (the leading letter), numbered in first-seen order and shared within a
+  -- message — and leave every ground kind and rigid (object-level: @#m@,
+  -- ∀-bound) variable exactly as the unparser prints it.
+
+  -- The solvable metavariables of a kind/multiplicity/baseKind, tagged with the
+  -- letter of their sort, in first-seen (left-to-right) order.
+  kMetas = \case
+    K.Proper _ m bk -> mMetas m ++ bkMetas bk
+    K.Arrow _ a b   -> kMetas a ++ kMetas b
+    K.Var _ lv v    -> [('k', v) | solvable lv]
+  mMetas = \case K.Sup _ as -> [('m', v) | (lv, v) <- as, solvable lv]; _ -> []
+  bkMetas = \case K.VarBK lv v | solvable lv -> [('p', v)]; _ -> []
+
+  -- Assign each distinct metavariable a name, in first-seen order, per sort.
+  mkTidy = go Map.empty Map.empty
+    where
+      go env _   []             = env
+      go env cnt ((c, v) : rest)
+        | Map.member (internal v) env = go env cnt rest
+        | otherwise = go (Map.insert (internal v) (c : show n) env)
+                         (Map.insert c (n + 1) cnt) rest
+        where n = Map.findWithDefault (0 :: Int) c cnt
+
+  tidyName env v = Map.findWithDefault "_" (internal v) env
+
+  -- The renderers mirror the 'Parser.Unparser' kind instances exactly on ground
+  -- and rigid input, diverging only to print a metavariable's tidy name.
+  tidyKind env = \case
+    K.Proper _ m bk -> tidyMultB env m ++ tidyBaseKind env bk
+    K.Arrow _ a b   -> dom ++ " -> " ++ tidyKind env b
+      where dom = case a of K.Arrow{} -> "(" ++ tidyKind env a ++ ")"
+                            _         -> tidyKind env a
+    K.Var _ lv v | solvable lv -> tidyName env v
+                 | otherwise   -> show v
+
+  tidyMult env = \case
+    K.Lin _    -> "1"
+    K.Un _     -> "*"
+    K.Sup _ as -> intercalate " + " (map atom as)
+      where atom (lv, v) | solvable lv = tidyName env v
+                         | otherwise   = show v
+
+  -- As 'tidyMult', but bracketing a multi-atom join before a baseKind, as the
+  -- unparser does inside a proper kind.
+  tidyMultB env = \case
+    m@(K.Sup _ as) | length as > 1 -> "(" ++ tidyMult env m ++ ")"
+    m                              -> tidyMult env m
+
+  tidyBaseKind env = \case
+    K.Top -> "T"; K.Session -> "S"; K.Channel -> "C"
+    K.VarBK lv v | solvable lv -> tidyName env v
+                 | otherwise   -> external v
+
+  -- Tidy a single kind/multiplicity/baseKind, or a pair sharing one environment
+  -- (so a metavariable common to both sides of a mismatch prints one name).
+  tidyK  k      = tidyKind (mkTidy (kMetas k)) k
+  tidyKK k1 k2  = let e = mkTidy (kMetas k1 ++ kMetas k2)
+                  in (tidyKind e k1, tidyKind e k2)
+  tidyM  m      = tidyMult (mkTidy (mMetas m)) m
+  tidyMM m1 m2  = let e = mkTidy (mMetas m1 ++ mMetas m2)
+                  in (tidyMult e m1, tidyMult e m2)
+  tidyBk  p      = tidyBaseKind (mkTidy (bkMetas p)) p
 
   prettyModifiedPlural w q  = \case
     0 -> "no "   ++ q ++ " " ++ w ++ "s"
@@ -542,22 +743,70 @@ toMessage src = \case
 
   prettyMoreParams = prettyModifiedPlural "parameter" "more"
 
-  bt s = "`" ++ s ++ "`"
-
   prettyVarCons = \case
     Left x -> "variable " ++ bt (external x)
     Right i -> "constructor " ++ bt (show i)
 
-  prettyPk = \case
+  prettyBk = \case
     K.Top     -> "type"
     K.Session -> "session type"
     K.Channel -> "channel type"
-    K.VarPK ψ -> "prekind " ++ show ψ ++ " type"
+    ψ@K.VarBK{} -> "type of base kind " ++ bt (tidyBk ψ)
+
+  -- | Explain, component by component, why a kind is not a subkind of the one
+  -- required (the header already states the subkind relation failed). A kind
+  -- pairs a multiplicity (linear vs unrestricted -- how many times a value may be
+  -- used) with a base kind (plain type, session type, channel type); either
+  -- component can break the subkind relation, so we spell out each one that does,
+  -- relating it to the offending type. Silent for arrow or variable kinds, where
+  -- a component-wise story does not apply.
+  kindMismatchHint :: String -> K.Kind -> K.Kind -> String
+  kindMismatchHint t actual@K.Proper{} expected@K.Proper{} = multHint ++ bkHint
+    where
+      K.Proper _ am abk = actual
+      K.Proper _ em ebk = expected
+      multHint
+        | not (am K.<: em) =
+            "  hint: " ++ bt t ++ " is " ++ multWord am
+              ++ ", but this position requires " ++ multReq em ++ "\n"
+        | otherwise = ""
+      bkHint
+        | not (abk K.<: ebk) =
+            "  hint: " ++ bt t ++ " is a " ++ prettyBk abk
+              ++ ", but this position requires a " ++ prettyBk ebk ++ "\n"
+        | otherwise = ""
+      multWord = \case
+        K.Lin{} -> "linear (it must be used exactly once)"
+        K.Un{}  -> "unrestricted"
+        m       -> "of multiplicity " ++ bt (tidyM m)
+      multReq = \case
+        K.Un{}  -> "an unrestricted type (one that may be discarded or shared)"
+        K.Lin{} -> "a linear type"
+        m       -> "a type of multiplicity " ++ bt (tidyM m)
+  kindMismatchHint _ _ _ = ""
+
+  -- | The two sides of a kind mismatch, each with its provenance, laid out as a
+  -- type mismatch is.
+  kindMismatch :: Source -> Span -> K.Kind -> K.Kind -> String
+  kindMismatch src s expected actual = makeError src s "Kind mismatch:"
+    ++ "Couldn't match expected kind " ++ bt e ++ takenFrom src s ", " expected
+    ++ "with actual kind " ++ bt a ++ takenFrom src s ", " actual
+    where (e, a) = tidyKK expected actual
+
+  -- | Where the thing at hand comes from, as a clause opened by @lead@. Silent
+  -- when its span is the one the error already reports at, or names source we do
+  -- not hold. A kind's span delimits the kind as written when there is one and
+  -- the type it was inferred for otherwise, and it was taken from either.
+  takenFrom :: Located a => Source -> Span -> String -> a -> String
+  takenFrom src primary lead (getSpan -> sp)
+    | sp == primary                      = "\n"
+    | not (Map.member (filepath sp) src) = "\n"
+    | otherwise = lead ++ "taken from:\n" ++ snippet src sp True
 
   -- | Render one side of a multiplicity mismatch
   multSide :: Source -> K.Multiplicity -> Origin -> String
-  multSide src m (Origin sp _) =
-    bt (unparse m) ++ multAdj ++ locateSpan src sp
+  multSide src m (Origin sp) =
+    bt (tidyM m) ++ multAdj ++ " inferred from" ++locateSpan src sp
     where
     multAdj = case m of
       K.Lin{} -> " (linear)"
@@ -570,6 +819,71 @@ toMessage src = \case
   locateSpan src sp@(Span fp _ _)
     | Map.member fp src = ":\n" ++ snippet src sp True
     | otherwise         = "\n"
+
+-- | Name the operator that consumes the endpoint of a session type. The type
+-- must be in weak head normal form. Returns 'Nothing' when its head is not a
+-- session action (e.g. a function type, an unapplied type constructor, or an
+-- unsolved metavariable). Walks through @;@ ('AppSemi') so the /next/ action of
+-- a sequenced session is reported; in weak head normal form the left of a @;@
+-- is itself an action, never a linear choice (R-SChoiceDist distributes those).
+sessionHint :: TK.KindedType -> Maybe String
+sessionHint = go
+  where
+    go = \case
+      TK.End _ Pos             -> Just "close"
+      TK.End _ Neg             -> Just "wait"
+      TK.AppMessage _ m Pos _  -> Just (atMult m "send")
+      TK.AppMessage _ m Neg _  -> Just (atMult m "receive")
+      TK.UnChoice _ Pos _      -> Just "select_"
+      TK.UnChoice _ Neg _      -> Just "case"
+      TK.AppLinChoice _ Pos _  -> Just "select"
+      TK.AppLinChoice _ Neg _  -> Just "case"
+      TK.AppQuantS _ Pos _ _ _ -> Just "sendType"
+      TK.AppQuantS _ Neg _ _ _ -> Just "receiveType"
+      TK.AppSemi _ t _         -> go t
+      _                        -> Nothing
+
+-- | Name a pattern that matches a type, so a pattern of the wrong shape or
+-- multiplicity can point at the right one. The type must be in weak head normal
+-- form. Mirrors, case for case, the forms 'Validation.Expose' accepts for a
+-- pattern, so a hint is offered exactly when some pattern does match.
+patternHint :: TK.KindedType -> Maybe String
+patternHint = \case
+  TK.End _ Neg                             -> Just "Wait"
+  TK.AppSemi _ (TK.End _ Neg) _            -> Just "Wait"
+  TK.AppMessage _ m Neg _                  -> Just (inPat m)
+  TK.AppSemi _ (TK.AppMessage _ m Neg _) _ -> Just (inPat m)
+  TK.UnChoice _ Neg _                      -> Just "*&l"
+  TK.AppSemi _ (TK.UnChoice _ Neg _) _     -> Just "*&l"
+  TK.AppLinChoice _ Neg _                  -> Just "&l p"
+  TK.AppQuantS _ Neg _ _ _                 -> Just "?type a. p"
+  _                                        -> Nothing
+  where inPat m = if K.isUn m then "*?p" else "?p; q"
+
+-- | The unrestricted sibling of an operator is its name with a trailing @_@.
+atMult :: K.Multiplicity -> String -> String
+atMult m op = if K.isUn m then op ++ "_" else op
+
+selectOp :: K.Multiplicity -> String
+selectOp = flip atMult "select"
+
+-- | Two hints for a value that only has a type once applied to a channel:
+-- 'select', 'sendType' and 'receiveType' are not ordinary curried functions,
+-- so the type-checker cannot synthesise a type for them on their own (see
+-- channels-and-session-types.md, "A summary of the basic elements of
+-- interaction"). @expr@ is the concrete expression at fault (e.g.
+-- @select Done@) and @scheme@ is the illustrative type scheme it ranges over
+-- (e.g. @+{Done: U, ...} -> U@).
+synthHint :: String -> String -> String
+synthHint expr scheme =
+     "(" ++ bt expr ++ " has all types of the form " ++ bt scheme
+  ++ ", so it needs a type to check against)"
+  ++ "\n  hint: give it one via ascription, e.g. " ++ bt (expr ++ " : " ++ scheme)
+  ++ "\n  hint: or apply it to a channel, e.g. " ++ bt (expr ++ " c")
+
+-- | Wrap a string in backtick characters
+bt :: String -> String
+bt s = "`" ++ s ++ "`"
 
 showErrors :: Source -> [Error] -> String
 showErrors src = intercalate "\n" . map (toMessage src)

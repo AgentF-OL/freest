@@ -3,41 +3,38 @@ Benjamin C. Pierce:
 Types and programming languages. MIT Press 2002
 -}
 
-module MCounter where
-
 type IntRef : *C
-type IntRef = *?IntRefSession
+type IntRef = *!(Dual IntRefSession)
 
 type IntRefSession : 1C
 type IntRefSession = +{Read: ?Int, Write: !Int} ; Close
 
-write : Int -> IntRef -> ()
-write x r = r |> receive_ |> select Write |> sendAndClose x
-
-read : IntRef -> Int
-read r = r |> receive_ |> select Read |> receiveAndClose
-
-intRef : Int -> IntRef
-intRef x = forkWith (handle x)
-  where
-    handle : Int -> Dual IntRef -> ()
-    handle x r = case accept r of
-      &Write s -> handle (receiveAndWait s) r
-      &Read  s -> sendAndWait x s; handle x r
-
 type MCounter : *T
-type MCounter = (exists (a : *T), (() -> a, a -> Int, a -> ()))
+type MCounter = (exists a, (() -> a, a -> Int, a -> ()))
 
 mCounterADT : MCounter
-mCounterADT = (@IntRef, ( \_     -> intRef 0                -- new
+mCounterADT = (@IntRef, ( \_ -> intRef 0                -- new
                         , \x -> read x                  -- get
                         , \x -> write (succ (read x)) x -- inc
                         )
               ) 
-            : MCounter
+  where
+  write : Int -> IntRef -> ()
+  write x r = r |> request |> select Write |> sendAndClose x
+
+  read : IntRef -> Int
+  read r = r |> request |> select Read |> receiveAndClose
+
+  intRef : Int -> IntRef
+  intRef x = forkWith (handle x)
+    where
+      handle : Int -> Dual IntRef -> ()
+      handle x r = case accept r of
+        &Write s -> handle (receiveAndWait s) r
+        &Read  s -> sendAndWait x s; handle x r
 
 main : ()
-main = inc x; print (get x)
+main = inc x; inc x; inc x; print (get x)
   where
-    (@(c : *T), (new, get, inc)) = mCounterADT
+    (@c, (new, get, inc)) = mCounterADT
     x = new ()

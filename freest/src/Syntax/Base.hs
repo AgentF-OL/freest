@@ -8,8 +8,11 @@ represent FreeST's external syntax.
 -}
 
 module Syntax.Base
-  ( Parsed, Scoped, Kinded, Typed 
+  -- Phases
+  ( Parsed, Scoped, Kinded, Typed
+  , void
   -- Span
+  , Pos
   , Span (..)
   , nullSpan
   , Located (..)
@@ -23,12 +26,16 @@ module Syntax.Base
   , firstInternal
   , defaultInternal
   , VarLv (..)
+  , solvable
   -- Level
   , Level (..)
   , mapLevel
   , voidLevel
   , partitionLevels
-  , void
+  -- Polarity
+  , Polarity (..)
+  , Dual (..)
+  -- Congruence
   , Congruence(..)
   )
 where
@@ -42,13 +49,13 @@ import Data.Map qualified as Map
 import Data.Set qualified as Set
 import Data.Void ( Void )
 
--- | The different phases of annotated ASTs
+-- * The phases of annotated ASTs. Based on "Trees that grow"
 data Parsed; data Scoped; data Kinded; data Typed
 
 void :: Void
-void = error "Attempt to evaluate void"
+void = internalError "attempt to evaluate void"
 
--- 1 _ Positions in the source code
+-- * Positions in the source code
 
 -- | A position in the source code is a pair of line and column numbers.
 type Pos = (Int, Int)
@@ -127,7 +134,7 @@ instance Show Identifier where
 mkId :: Located a => String -> a -> Identifier
 mkId i l = Identifier (getSpan l) i
 
--- 3 _ Variables
+-- * Variables
 
 -- | Variables are used to represent expression and type variables. Unlike
 -- identifiers, they have an internal representation that depends on their
@@ -145,13 +152,14 @@ instance Ord Variable where
 instance Eq Variable where 
   a == b = internal a == internal b
 
-instance Show Variable where 
-  show (Variable _ extl intl) = extl++subscript intl
-    where 
-      subscript = 
-        map (\case '0'->'₀'; '1'->'₁'; '2'->'₂'; '3'->'₃'; '4'->'₄'
-                   '5'->'₅'; '6'->'₆'; '7'->'₇'; '8'->'₈'; '9'->'₉'
-                   '-' -> '₋') . show
+instance Show Variable where
+  show (Variable _ extl _) = extl
+  -- show (Variable _ extl intl) = extl++subscript intl
+  --   where
+  --     subscript =
+  --       map (\case '0'->'₀'; '1'->'₁'; '2'->'₂'; '3'->'₃'; '4'->'₄'
+  --                  '5'->'₅'; '6'->'₆'; '7'->'₇'; '8'->'₈'; '9'->'₉'
+  --                  '-' -> '₋') . show
 instance Located Variable where 
   getSpan = varSpan
   setSpan s x = x{varSpan=s}
@@ -183,12 +191,18 @@ mkFreshVar s = unusedVar [firstInternal..] (mkDefaultVar "_γ" s)
 -- object-level variables and metavariables. The only metavariables for now are
 -- instantiation variables, used during local type inference. In the future we
 -- may have, e.g., unification variables for more general type inference.
-data VarLv 
+data VarLv
   = ObjLv -- ^ Object-level variable
-  | InstLv -- ^ Instantiation-level variable
+  | InstLv -- ^ Instantiation-level variable (local type inference)
+  | UnifLv -- ^ Unification variable (kind inference)
   deriving (Eq, Ord, Show)
 
--- 4 _ Levels
+-- | Whether a variable at this level may be solved by inference. Object-level
+-- variables are rigid; instantiation and unification variables are solvable.
+solvable :: VarLv -> Bool
+solvable = (/= ObjLv)
+
+-- * Levels
 
 -- | Used to separate the syntax of different computational levels:
 -- expression, types and multiplicity.
@@ -235,6 +249,20 @@ partitionLevels =
               (TypeLevel y) -> \(xs, ys, zs) -> (xs, y : ys, zs) 
               (MultLevel z) -> \(xs, ys, zs) -> (xs, ys, z : zs) 
         ([], [], [])
+
+-- * Duality
+
+class Dual a where
+  dual :: a -> a
+
+-- | Which of two dual roles a construct plays.
+data Polarity = Neg | Pos
+  deriving (Eq, Ord)
+
+instance Dual Polarity where
+  dual = \case Neg -> Pos; Pos -> Neg
+
+-- * Congruence
 
 class Congruence t where
   congruent :: Map.Map Variable Variable -> t -> t -> Bool

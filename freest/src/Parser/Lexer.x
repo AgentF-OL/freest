@@ -65,6 +65,7 @@ $upper = [ A-Z ]
 <0> "exists" { token TkExists }
 <0> "rec"    { token TkRec }
 <0> "channel"{ token TkChannel }
+<0> "select_" { token TkSelectUn }
 <0> "select" { token TkSelect }
 <0> "sendType"    { token TkSendType }
 <0> "receiveType" { token TkReceiveType }
@@ -86,9 +87,11 @@ $upper = [ A-Z ]
 <0> "}"    { token TkClose }
 <0> "|"    { token TkPipe }
 <0> "["    { token TkLSquare }
+<0> "]'"   { token TkRSquarePrime }
 <0> "]"    { token TkRSquare }
 
 -- Operators
+<0> "::'" { token TkColonColonPrime }
 <0> "::"  { token TkColonColon }
 <0> ";"   { token TkSemi }
 <0> "$"   { token TkDollar }
@@ -97,6 +100,7 @@ $upper = [ A-Z ]
 <0> "|>"  { token TkPipeGT }
 <0> "+"   { token TkPlus }
 <0> "+."  { token TkPlusDot }
+<0> "++'" { token TkPlusPlusPrime }
 <0> "++"  { token TkPlusPlus }
 <0> "-"   { token TkMinus }
 <0> "-."  { token TkMinusDot }
@@ -192,9 +196,9 @@ doEOF s = do
     Nothing -> do
       popStartCode
       token TkEOF s
-    (Just (LayoutColumn _)) -> do
+    (Just (LayoutColumn p)) -> do
       popLayout
-      token TkVClose s
+      token (\sp -> TkVClose sp (Just (FileEnded p))) s
     -- (Just ExplicitLayout) -> do -- removed from Liao's version
 
 
@@ -204,8 +208,11 @@ scan = do
   startcode <- startCode
   case alexScan input startcode of
     AlexEOF -> handleEOF
-    AlexError (Input l c _ inp f) -> throwError 
-      [LexicalError (Span{startPos=(l, c), endPos=(l, c + 1), filepath=f}) (head inp)]
+    AlexError (Input l c _ inp f) ->
+      let sp = Span{startPos=(l, c), endPos=(l, c + 1), filepath=f}
+      in throwError [ case inp of
+           ch : _ -> LexicalError sp ch
+           []     -> UnexpectedEOF sp ]
     AlexSkip input' _ -> do
       modify' $ \s -> s { lexerInput = input' }
       scan
@@ -214,6 +221,7 @@ scan = do
       action (take tokl string)
 
 layoutKw t x = do
+  setBlockKw x
   pushStartCode layoutSC
   token t x
 
@@ -225,35 +233,37 @@ openBrace s = do
 startLayout s = do
   popStartCode
 
-  reference <- layout
-  col       <- gets (inpColumn . lexerInput)
-  if Just (LayoutColumn col) <= reference
-    then pushStartCode emptyLayoutSC
-    else pushLayout (LayoutColumn col)
-    
+  Input{inpLine=lin, inpColumn=col} <- gets lexerInput
+  block <- Block <$> takeBlockKw <*> pure (lin, col)
+  layout >>= \case
+    Just (LayoutColumn enclosing) | col <= blockColumn enclosing ->
+      setLayoutNote lin (EmptyBlock block enclosing) *> pushStartCode emptyLayoutSC
+    _ -> pushLayout (LayoutColumn block)
+
   token TkVOpen s
 
 emptyLayout s = do
   popStartCode
   pushStartCode newlineSC
-  token TkVClose s
+  token (\sp -> TkVClose sp Nothing) s
 
 offsideRule s = do
   context <- layout
-  col <- gets (inpColumn . lexerInput)
+  Input{inpLine=lin, inpColumn=col} <- gets lexerInput
 
   let continue = popStartCode *> scan
 
   case context of
-    Just (LayoutColumn col') -> do
-      case col `compare` col' of
+    Just (LayoutColumn p) -> do
+      case col `compare` blockColumn p of
         EQ -> do
           popStartCode
-          token TkVPipe s 
-        GT -> continue
+          token TkVPipe s
+        GT -> setLayoutNote lin (Continues p) *> continue
         LT -> do
           popLayout
-          token TkVClose s
+          end <- blockEndAt p
+          token (\sp -> TkVClose sp (Just end)) s
     _ -> continue
 
 }
