@@ -1,5 +1,3 @@
-module RaiseRaiseRaise where
-
 _ =
   try
     try
@@ -7,13 +5,13 @@ _ =
         raise
       as _ in
         ()
-      otherwise
-        print "Ground"; raise
+      unless
+        putStrLn "Ground"; raise
     as _ in
       ()
-    otherwise
-      print "1st Floor"; raise
+    unless
+      putStrLn "1st Floor"; raise
   as _ in
     ()
-  otherwise
-    print "2nd Floor"
+  unless
+    putStrLn "2nd Floor"

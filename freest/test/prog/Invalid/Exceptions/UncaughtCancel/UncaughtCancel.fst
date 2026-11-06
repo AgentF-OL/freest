@@ -1,5 +1,3 @@
-module UncaughtCancel where
-
 sendInt : Int -> !Int ; Close -> ()
 sendInt n c = cancel c
 

@@ -1,5 +1,3 @@
-module TryReceiveChainNotCancelled where
-
 type Three : 1C
 type Three = !Int ; !Int ; !Int ; Close
 
@@ -12,11 +10,11 @@ sumInts c =
     try receive c as (n2, c) in
       try receiveAndWait c as n3 in
         n1 + n2 + n3
-      otherwise
+      unless
         n1 + n2
-    otherwise
+    unless
       n1
-  otherwise
+  unless
     0
 
-_ = forkWith (sendInts (1, 2, 4)) |> sumInts |> print
+_ = forkWith (sendInts (1, 2, 4)) |> sumInts |> putStrLn

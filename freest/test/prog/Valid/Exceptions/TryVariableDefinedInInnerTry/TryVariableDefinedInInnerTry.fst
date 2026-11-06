@@ -1,13 +1,11 @@
-module TryVariableDefinedInInnerTry where
-
-_ = print $
+_ = putStrLn $
   try
     let x = 1 in x;
     try
       x + 1
     as res in
       x + res
-    otherwise
+    unless
       x
-  otherwise
+  unless
     0

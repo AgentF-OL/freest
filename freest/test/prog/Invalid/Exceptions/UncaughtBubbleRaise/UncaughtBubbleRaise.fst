@@ -1,5 +1,3 @@
-module UncaughtBubbleRaise where
-
 _ =
   try
     try
@@ -7,12 +5,12 @@ _ =
         try
           try raise
           as _ in ()
-          otherwise raise
+          unless raise
         as _ in ()
-        otherwise raise
+        unless raise
       as _ in ()
-      otherwise raise
+      unless raise
     as _ in ()
-    otherwise raise
+    unless raise
   as _ in ()
-  otherwise raise
+  unless raise

@@ -1,5 +1,3 @@
-module SenderCancelled where
-
 sendInt : Int -> !Int ; Wait -> ()
 sendInt n c = cancel c
 
@@ -9,7 +7,7 @@ receiveInt c =
     receiveAndClose c
   as n in
     Just n
-  otherwise
+  unless
     Nothing
 
-_ = forkWith (sendInt 42) |> receiveInt |> print
+_ = forkWith (sendInt 42) |> receiveInt |> putStrLn

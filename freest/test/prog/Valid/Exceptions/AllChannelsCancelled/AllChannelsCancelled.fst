@@ -1,5 +1,3 @@
-module AllChannelsCancelled where
-
 type One, Two, Three : 1C
 type One = !Int ; Close
 type Two = !Int ; !(Dual One) ; Close
@@ -20,4 +18,4 @@ sumInts c1 = cancel c1; Nothing -- c1 buffer has 2 channels inside, which should
 _ =
   let (w, r) = channel @Three in
   sendInts (1, 2, 4) w;
-  print $ sumInts r
+  putStrLn $ sumInts r

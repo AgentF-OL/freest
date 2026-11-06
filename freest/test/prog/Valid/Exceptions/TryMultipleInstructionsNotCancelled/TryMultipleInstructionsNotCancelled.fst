@@ -1,5 +1,3 @@
-module TryMultipleInstructionsNotCancelled where
-
 type Three : 1C
 type Three = !Int ; !Int ; !Int ; Close
 
@@ -14,6 +12,6 @@ sumInts c =
         (n3, c) = receive c
     in n1 + n2 + n3
   as res in Just res
-  otherwise Nothing
+  unless Nothing
 
-_ = forkWith (sendInts (1, 2, 4)) |> sumInts |> print
+_ = forkWith (sendInts (1, 2, 4)) |> sumInts |> putStrLn

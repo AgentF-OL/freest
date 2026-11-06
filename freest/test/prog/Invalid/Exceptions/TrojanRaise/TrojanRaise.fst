@@ -1,5 +1,3 @@
-module TrojanRaise where
-
 type Gift : 1C
 type Gift = !Int ; Close
 

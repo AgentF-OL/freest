@@ -1,5 +1,3 @@
-module SendRaise where
-
 sendSurprise : !Int ; Wait -> ()
 sendSurprise c = sendAndWait raise
 
@@ -9,7 +7,7 @@ receiveInt c =
     receiveAndClose c
   as n in
     Just n
-  otherwise
+  unless
     Nothing
 
-_ = forkWith sendSurprise |> receiveInt |> print
+_ = forkWith sendSurprise |> receiveInt |> putStrLn
