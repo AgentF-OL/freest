@@ -17,4 +17,4 @@ sumInts c =
   unless
     0
 
-_ = forkWith (sendInts (1, 2, 4)) |> sumInts |> putStrLn
+_ = forkWith (sendInts (1, 2, 4)) |> sumInts |> print

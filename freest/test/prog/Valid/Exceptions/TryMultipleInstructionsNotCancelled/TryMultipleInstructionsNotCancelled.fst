@@ -9,9 +9,9 @@ sumInts c =
   try
     let (n1, c) = receive c
         (n2, c) = receive c
-        (n3, c) = receive c
+        n3 = receiveAndWait c
     in n1 + n2 + n3
   as res in Just res
   unless Nothing
 
-_ = forkWith (sendInts (1, 2, 4)) |> sumInts |> putStrLn
+_ = forkWith (sendInts (1, 2, 4)) |> sumInts |> print

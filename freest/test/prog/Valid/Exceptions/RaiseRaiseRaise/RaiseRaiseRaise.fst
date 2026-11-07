@@ -6,12 +6,12 @@ _ =
       as _ in
         ()
       unless
-        putStrLn "Ground"; raise
+        print "Ground"; raise
     as _ in
       ()
     unless
-      putStrLn "1st Floor"; raise
+      print "1st Floor"; raise
   as _ in
     ()
   unless
-    putStrLn "2nd Floor"
+    print "2nd Floor"

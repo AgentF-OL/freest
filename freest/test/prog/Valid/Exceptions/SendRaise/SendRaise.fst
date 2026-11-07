@@ -10,4 +10,4 @@ receiveInt c =
   unless
     Nothing
 
-_ = forkWith sendSurprise |> receiveInt |> putStrLn
+_ = forkWith sendSurprise |> receiveInt |> print

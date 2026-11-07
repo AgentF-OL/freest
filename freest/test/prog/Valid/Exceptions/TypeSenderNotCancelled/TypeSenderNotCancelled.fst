@@ -7,10 +7,10 @@ render c =
     try receive c as (f, c) in
       try receive c as (x, c) in
         try sendAndWait (f x) c as _ in ()
-        unless putStrLn "Failed to close channel"
-      unless putStrLn "Failed to receive value to render"
-    unless putStrLn "Failed to receive render function"
-  unless putStrLn "Failed to receive type of the value to render"
+        unless print "Failed to close channel"
+      unless print "Failed to receive value to render"
+    unless print "Failed to receive render function"
+  unless print "Failed to receive type of the value to render"
 
 charRenderer : Dual Render -> String
 charRenderer c =
@@ -21,4 +21,4 @@ charRenderer c =
     showChar : Char -1-> String
     showChar c = "My favourite char is " ++ show c
 
-_ = forkWith render |> charRenderer |> putStrLn
+_ = forkWith render |> charRenderer |> print

@@ -1,4 +1,4 @@
-_ = putStrLn $
+_ = print $
   try
     let x = 1 in x;
     try
@@ -7,5 +7,6 @@ _ = putStrLn $
       x + res
     unless
       x
+  as res in res
   unless
     0

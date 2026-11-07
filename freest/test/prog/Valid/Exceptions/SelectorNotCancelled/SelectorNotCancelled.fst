@@ -1,26 +1,26 @@
 type Qty, Price : *T
-type Qty = Int
+type Qty = Float
 type Price = Float
 
 type Order : 1C
 type Order = +{Cake: !Qty, Pizza: !Qty} ; Close
 
-orderCake : Order -> Int -> ()
-orderCake c qty = c |> select Cake |> send qty |> close
+orderCake : Float -> Order -1-> ()
+orderCake qty c = c |> select Cake |> send qty |> close
 
 receiveOrder : Dual Order -> Price
 receiveOrder c =
   try
     case c of
       &Cake c ->
-        try receiveAndWait c as qty in 5.00 * qty
-        unless putStrLn "Order cancelled: missing quantity of cake."; 0.00
+        try receiveAndWait c as qty in 5.00 *. qty
+        unless print "Order cancelled: missing quantity of cake."; 0.00
       &Pizza c ->
-        try receiveAndWait c as qty in 7.00 * qty
-        unless putStrLn "Order cancelled: missing quantity of pizza."; 0.00
+        try receiveAndWait c as qty in 7.00 *. qty
+        unless print "Order cancelled: missing quantity of pizza."; 0.00
   as price in
     price
   unless
-    putStrLn "Order cancelled: no dessert selected."; 0.00
+    print "Order cancelled: no dessert selected."; 0.00
 
-_ = forkWith (orderCake 3) |> receiveOrder |> putStrLn
+_ = forkWith (orderCake 3.0) |> receiveOrder |> print

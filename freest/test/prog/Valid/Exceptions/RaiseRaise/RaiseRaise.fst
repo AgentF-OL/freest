@@ -5,8 +5,8 @@ _ =
     as _ in
       ()
     unless
-      putStrLn "Inside"; raise
+      print "Inside"; raise
   as _ in
     ()
   unless
-    putStrLn "Outside"
+    print "Outside"

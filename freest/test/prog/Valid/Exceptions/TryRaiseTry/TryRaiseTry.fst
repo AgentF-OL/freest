@@ -4,7 +4,7 @@ _ =
       try
         "Ground"
       as floor in
-        putStrLn floor; raise
+        print floor; raise
       unless
         "Underground"
     as floor in
@@ -12,6 +12,6 @@ _ =
     unless
       "1st Floor"
   as floor in
-    putStrLn floor
+    print floor
   unless
-    putStrLn "Underground"
+    print "Underground"

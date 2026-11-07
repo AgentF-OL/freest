@@ -4,4 +4,4 @@ _ =
   as _ in
     ()
   unless
-    putStrLn "Failed successfully!"
+    print "Failed successfully!"
