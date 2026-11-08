@@ -4,7 +4,7 @@ _ =
       try
         "Ground"
       as floor in
-        print floor; raise
+        print floor; (raise : String)
       unless
         "Underground"
     as floor in
