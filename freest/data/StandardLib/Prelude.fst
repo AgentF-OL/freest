@@ -356,6 +356,14 @@ wait = undefined
 close : Close -> ()
 close = undefined
 
+-- | Cancels the given channel, ignoring the continuation of the protocol,
+-- and clears the content of the buffer. The other end will have an exception
+-- raised the next time it invokes an input operation when its buffer is empty
+-- (e.g. receive, wait, case c of &l c -> ...). Has no effect when applied
+-- to a shared channel (*S and *C). Returns ().
+cancel : forall (a : 1S) -> a -> ()
+cancel @a = undefined
+
 -- | Sends a value on a given channel and then waits for the channel to be
 -- closed. Returns ().
 sendAndWait : forall #m (a : m T) -> a -> !a ; Wait -m-> ()

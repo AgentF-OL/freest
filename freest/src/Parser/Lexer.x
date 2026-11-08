@@ -48,25 +48,29 @@ $upper = [ A-Z ]
 <0> "--" .* ; -- when files end in a comment and no newline. TODO: check this
 
 -- Keywords
-<0> "module" { token TkModule }
-<0> "where"  { layoutKw TkWhere }
-<0> "import" { token TkImport }
-<0> "data"   { token TkData }
-<0> "type"   { token TkType }
-<0> "let"    { layoutKw TkLet }
-<0> "in"     { token TkIn }
-<0> "mutual" { layoutKw TkMutual }
-<0> "case"   { token TkCase }
-<0> "of"     { layoutKw TkOf }
-<0> "if"     { token TkIf }
-<0> "then"   { token TkThen }
-<0> "else"   { token TkElse }
-<0> "forall" { token TkForall }
-<0> "exists" { token TkExists }
-<0> "rec"    { token TkRec }
-<0> "channel"{ token TkChannel }
-<0> "select_" { token TkSelectUn }
-<0> "select" { token TkSelect }
+<0> "module"      { token TkModule }
+<0> "where"       { layoutKw TkWhere }
+<0> "import"      { token TkImport }
+<0> "data"        { token TkData }
+<0> "type"        { token TkType }
+<0> "let"         { layoutKw TkLet }
+<0> "in"          { token TkIn }
+<0> "mutual"      { layoutKw TkMutual }
+<0> "case"        { token TkCase }
+<0> "of"          { layoutKw TkOf }
+<0> "if"          { token TkIf }
+<0> "then"        { token TkThen }
+<0> "else"        { token TkElse }
+<0> "try"         { token TkTry }
+<0> "as"          { token TkAs }
+<0> "unless"      { token TkUnless }
+<0> "raise"       { token TkRaise }
+<0> "forall"      { token TkForall }
+<0> "exists"      { token TkExists }
+<0> "rec"         { token TkRec }
+<0> "channel"     { token TkChannel }
+<0> "select_"     { token TkSelectUn }
+<0> "select"      { token TkSelect }
 <0> "sendType"    { token TkSendType }
 <0> "receiveType" { token TkReceiveType }
 

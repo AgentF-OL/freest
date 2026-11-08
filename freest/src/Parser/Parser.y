@@ -70,26 +70,30 @@ import Data.List ( sortBy )
   PIPE    { TkVPipe _ }
   CLOSE   { TkVClose _ _ }
   -- Keywords
-  'module' { TkModule _ }
-  'where'  { TkWhere _ }
-  'import' { TkImport _ }
-  'data'   { TkData _ }
-  'type'   { TkType _ }
-  'let'    { TkLet _ }
-  'in'     { TkIn _ }
-  'mutual' { TkMutual _ }
-  'case'   { TkCase _ }
-  'of'     { TkOf _ }
-  'channel'{ TkChannel _ }
-  'select' {TkSelect _ }
-  'select_' {TkSelectUn _ }
+  'module'      { TkModule _ }
+  'where'       { TkWhere _ }
+  'import'      { TkImport _ }
+  'data'        { TkData _ }
+  'type'        { TkType _ }
+  'let'         { TkLet _ }
+  'in'          { TkIn _ }
+  'mutual'      { TkMutual _ }
+  'case'        { TkCase _ }
+  'of'          { TkOf _ }
+  'channel'     { TkChannel _ }
+  'select'      { TkSelect _ }
+  'select_'     { TkSelectUn _ }
   'sendType'    { TkSendType _ }
   'receiveType' { TkReceiveType _ }
-  'if'     { TkIf _ }
-  'then'   { TkThen _ }
-  'else'   { TkElse _ }
-  'forall' { TkForall _ }
-  'exists' { TkExists _ }
+  'if'          { TkIf _ }
+  'then'        { TkThen _ }
+  'else'        { TkElse _ }
+  'try'         { TkTry _ }
+  'as'          { TkAs _ }
+  'unless'      { TkUnless _ }
+  'raise'       { TkRaise _ }
+  'forall'      { TkForall _ }
+  'exists'      { TkExists _ }
   -- Punctuation
   '.'     { TkDot _ }
   '='     { TkEqual _ }
@@ -117,7 +121,7 @@ import Data.List ( sortBy )
   '&&'    { TkAmpAmp _ }
   '+'     { TkPlus _ }
   '++'    { TkPlusPlus _ }
-  "++'"    { TkPlusPlusPrime _ }
+  "++'"   { TkPlusPlusPrime _ }
   '+.'    { TkPlusDot _ }
   '-'     { TkMinus _ }
   '-.'    { TkMinusDot _ }
@@ -157,7 +161,7 @@ import Data.List ( sortBy )
 
 %nonassoc LAMBDA    
 %right    ':'
-%right    'in' 'else' 'case'
+%right    'in' 'else' 'case' 'unless'
 %right    '.'
 %right    '->' ARROW
 %right    ';' SEMI
@@ -487,6 +491,8 @@ Exp :: { E.ParsedExp }
   | '\\' ExpParamsArrow Exp %prec LAMBDA{ E.Abs (spanFromTo $1 $3) (fst $2) (snd $2) $3 }
   | 'if' Exp 'then' Exp 'else' Exp { E.If (spanFromTo $1 $6) $2 $4 $6 }
   | 'case' Exp 'of' CaseBlock { E.Case (spanFromTo $1 (snd $ last $4)) $2 $4 }
+  | 'try' Exp 'as' Pat 'in' Exp 'unless' Exp { E.Try (spanFromTo $1 $8) $2 ($4, $6) $8 }
+  | 'raise' { E.Raise (getSpan $1) }
   | Exp ':' Type { E.Asc (spanFromTo $1 $3) $1 $3 }
   -- Operators
   -- TODO: handle operators more elegantly. They are responsible for most s/r 

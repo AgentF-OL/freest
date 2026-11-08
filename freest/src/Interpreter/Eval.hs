@@ -20,7 +20,7 @@ TODO:
  -}
 
 import Control.Concurrent (forkIO)
-import Control.Exception (catch, throwIO)
+import Control.Exception (try, catch, throwIO)
 import Control.Monad (zipWithM, foldM)
 import Data.Bifunctor (first)
 import Data.Functor (($>), void)
@@ -32,8 +32,9 @@ import qualified Data.Set as Set
 import Compiler.Bug (internalError)
 import Interpreter.Exception (Exception(..))
 import Interpreter.PatternMatching (matchPat, matchClause, forceColumns)
-import Interpreter.Value (ValueCtx, Clause, Value(..), mkClosure)
+import Interpreter.Value (ValueCtx, Clause, Value(..), Multiplicity(..), mkClosure)
 import Interpreter.Builtin (chan, send, builtins, fstToHsBool, hsToFstString, receive, receiveLabel)
+import qualified Syntax.Type.Kinded as TK
 import qualified Syntax.Base as B
 import qualified Syntax.Expression as E
 import qualified Syntax.Kind as K
@@ -298,9 +299,23 @@ eval ctx (E.If _ ifExp thenExp elseExp) = do
   if fstToHsBool ifVal
   then eval ctx thenExp
   else eval ctx elseExp
-eval _ (E.Channel _ _) = do
+eval ctx (E.Try _ tryExp (pat, asinExp) unlessExp) = do
+  mTryVal <- (try :: IO Value -> IO (Either Exception Value)) $ eval ctx tryExp
+  case mTryVal of
+    Right tryVal -> do
+      mb <- matchPat tryVal pat
+      binds <- maybe unmatched pure mb
+      eval (ctx `union` binds) asinExp
+    Left exn -> eval ctx unlessExp
+  where
+    unmatched :: IO r
+    unmatched = throwIO (NonExhaustivePatterns (B.getSpan pat)) :: IO r
+eval ctx (E.Raise s) = throwIO (UserError s "SomeException")
+eval _ (E.Channel s t) = do
   -- obtain channel ends for a fresh channel
-  (chanL, chanR) <- chan
+  (chanL, chanR) <- case TK.kindOf t of
+    K.Proper _ (K.Un _) _ -> chan Un
+    K.Proper _ (K.Lin _) _ -> chan Lin
   return $ VCons "(,)" [VChan chanL, VChan chanR]
 eval _ (E.Select _ m (B.Identifier _ iden)) = do
   let (Just (VBuiltin selectBuiltin)) =

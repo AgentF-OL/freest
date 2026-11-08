@@ -456,6 +456,12 @@ scopeExp ctx = \case
         (p',) <$> scopeRHS ctx' rhs
   E.If s e1 e2 e3 ->
     E.If s <$> scopeExp ctx e1 <*> scopeExp ctx e2 <*> scopeExp ctx e3
+  E.Try s e1 (p, e2) e3 -> do
+    (_, p') <- scopePat ctx emptyScopingCtx p
+    let ctx' = insertPatVars p' ctx
+    e2' <- scopeExp ctx' e2
+    E.Try s <$> scopeExp ctx e1 <*> pure (p', e2') <*> scopeExp ctx e3
+  E.Raise s -> pure $ E.Raise s
   E.List s es -> E.List s <$> mapM (scopeExp ctx) es
   E.Channel s t ->
     E.Channel s <$> scopeType ctx t

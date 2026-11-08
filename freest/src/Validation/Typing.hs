@@ -237,6 +237,18 @@ synth tdecls ddecls kctx tctx = \case
     (e3', tctx3) <- check tdecls ddecls kctx tctx1 e3 t2
     checkEquivTypeCtxsCase (Right e) [tctx2, tctx3]
     return (E.If s e1' e2' e3', t2, tctx2)
+  e@(E.Try s e1 (p, e2) e3) -> do
+    (e1', t1, tctx1) <- synth tdecls ddecls kctx tctx e1
+    (kctx', tctxp) <- checkPat tdecls ddecls kctx p t1
+    (e2', t2, tctx2p) <- synth tdecls ddecls kctx' (tctx1 `Map.union` tctxp) e2
+    (e3', tctx3) <- check tdecls ddecls kctx tctx1 e3 t2
+    tctx2 <- typeCtxDifference tdecls kctx' tctx2p tctxp
+    checkEquivTypeCtxsCase (Right e) [tctx2, tctx3]
+    return (E.Try s e1' (p, e2') e3', t2, tctx2)
+  e@(E.Raise s) -> do -- forall (a : 1T) -*-> a
+    let tv = mkDefaultVar "a" s
+    tv <- freshInternal tv
+    return (e, T.AppForall s (K.Un s) [(tv, K.lt s)] (T.Var s (K.lt s) ObjLv tv), tctx)
   e@(E.Channel s t) -> do
     Kinding.checkChannel t
     pure (e, T.Tuple s [t, T.AppDual s t], tctx)
@@ -414,6 +426,15 @@ check tdecls ddecls kctx tctx e t = case e of
     (e3', tctx3) <- check tdecls ddecls kctx tctx1 e3 t
     checkEquivTypeCtxsCase (Right e) [tctx2, tctx3]
     return (E.If s e1' e2' e3', tctx2)
+  E.Try s e1 (p, e2) e3 -> do
+    (e1', t1, tctx1) <- synth tdecls ddecls kctx tctx e1
+    (kctx', tctxp) <- checkPat tdecls ddecls kctx p t1
+    (e2', tctx2p) <- check tdecls ddecls kctx' (tctx1 `Map.union` tctxp) e2 t
+    (e3', tctx3) <- check tdecls ddecls kctx tctx1 e3 t
+    tctx2 <- typeCtxDifference tdecls kctx' tctx2p tctxp
+    checkEquivTypeCtxsCase (Right e) [tctx2, tctx3]
+    return (E.Try s e1' (p, e2') e3', tctx2)
+  e@(E.Raise s) -> pure (e, tctx)
   E.Channel s u -> do
     Kinding.checkChannel u
     case normalise tdecls t of

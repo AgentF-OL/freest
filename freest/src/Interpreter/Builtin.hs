@@ -19,15 +19,15 @@ module Interpreter.Builtin
   ) where
 
 import Control.Concurrent ( forkIO )
-import qualified Control.Concurrent.Chan as C ( newChan, readChan, writeChan )
+import qualified Control.Concurrent.Chan as C ( newChan, readChan, writeChan, getChanContents, Chan )
 import Control.Exception (BlockedIndefinitelyOnMVar, BlockedIndefinitelyOnSTM, IOException, SomeException, bracket_, catch, finally, fromException, throwIO)
 import Data.Char ( chr, ord )
-import Data.Functor ( ($>), void )
+import Data.Functor ( ($>), void, (<&>) )
 import qualified Data.Map as Map
 import GHC.Float ( Floating(log1mexp, log1p, expm1, log1pexp) )
 
 import Interpreter.Exception (Exception(..))
-import Interpreter.Value ( Value(..), ChannelEnd )
+import Interpreter.Value ( Value(..), ChannelEnd, Multiplicity(..) )
 import Compiler.Bug ( internalError )
 import Parser.Unparser ( unparse )
 import Syntax.Base ( nullSpan )
@@ -108,11 +108,11 @@ asString = \case
   VCons "(::)" [VChar c, rest] -> (c :) <$> asString rest
   _                            -> Nothing
 
-chan :: IO (ChannelEnd, ChannelEnd)
-chan = do
+chan :: Multiplicity -> IO (ChannelEnd, ChannelEnd)
+chan m = do
   c1 <- C.newChan
   c2 <- C.newChan
-  return ((c1, c2), (c2, c1))
+  return ((c1, c2, m), (c2, c1, m))
 
 handleBlockedRead :: IO a -> IO a
 handleBlockedRead action =
@@ -126,9 +126,11 @@ handleBlockedRead action =
         Nothing -> throwIO e
 
 receive :: ChannelEnd -> IO (Value, ChannelEnd)
-receive c = handleBlockedRead $ do
-  v <- C.readChan (fst c)
-  return (v, c)
+receive c@(r, _, m) = handleBlockedRead $ do
+  v <- C.readChan r
+  case m of
+    Lin -> raiseOnZap v >> return (v, c)
+    Un -> return (v, c)
 
 receiveLabel :: ChannelEnd -> IO (String, ChannelEnd)
 receiveLabel c = do
@@ -136,8 +138,8 @@ receiveLabel c = do
   return (s, c)
 
 send :: Value -> ChannelEnd -> IO ChannelEnd
-send v c = do
-  C.writeChan (snd c) v
+send v c@(_, w, _) = do
+  C.writeChan w v
   return c
 
 sendLabel :: String -> ChannelEnd -> IO ChannelEnd
@@ -145,14 +147,48 @@ sendLabel s c = do
   send (VLabel s) c
   return c
 
-wait :: Value -> Value
-wait (VChan c) =
-  VIO $ handleBlockedRead (C.readChan (fst c))
+wait :: Value -> IO Value
+wait (VChan c) = receive c <&> fst
 
 close :: Value -> IO Value
-close (VChan c) = do
-  C.writeChan (snd c) (VCons "()" [])
+close (VChan (_, w, _)) = do
+  C.writeChan w (VCons "()" [])
   return (VCons "()" [])
+
+cancel :: Value -> IO Value
+cancel v = do
+  case v of VChan (_, _, Lin) -> zap v; _ -> pure ()
+  return $ VCons "()" []
+
+zap :: Value -> IO ()
+zap v = case v of
+  (VCons _ vals) -> mapM_ zap vals
+  (VClosure mvals _ _) -> mapM_ (pure . fmap zap) mvals
+  (VIO ioval) -> ioval >>= \val -> zap val
+  (VChan (r, w, _)) -> do
+    C.writeChan w VZap
+    C.writeChan r VZap  -- TODO: there isn't a good way to obtain all the values in the buffer with the Control.Concurrent.Chan module
+                        -- without knowing its size (getChanContents retrieves the buffer lazily, so it will simply throw an exception
+                        -- if we let it execute until the end) besides reading the buffer one by one while watching for possible exceptions
+                        -- (this write on the reader side is the stopping point).
+                        -- Switching to module Control.Concurrent.STM.TChan would allow for buffer retrieval and
+                        -- also peeking and placing a value back in the buffer. The STM monad can be converted to IO.
+    buffer <- buffer r
+    mapM_ zap buffer
+    where
+      buffer :: C.Chan Value -> IO [Value]
+      buffer r = handleBlockedRead $ do
+        val <- C.readChan r
+        case val of
+          VZap -> pure []
+          _ -> buffer r >>= \vals -> pure (val : vals)
+  (VPack _ val) -> zap val
+  _ -> pure ()
+
+raiseOnZap :: Value -> IO Value
+raiseOnZap v = case v of
+  VZap -> throwIO (UserError nullSpan "SomeException")
+  _ -> pure v
 
 -- | Report a failed file operation as the program's error, not the compiler's.
 asUserError :: IO a -> IO a
@@ -167,7 +203,7 @@ asUserError act = act `catch` \(e :: IOException) -> throwIO (UserError nullSpan
 openStream :: IOMode -> (Handle -> ChannelEnd -> IO ()) -> Value -> Value
 openStream mode serve path = VIO $ do
   h <- asUserError (openFile (fstToHsString path) mode)
-  (client, server) <- chan
+  (client, server) <- chan Lin
   _ <- forkIO (asUserError (serve h server) `finally` hClose h)
   return (VChan client)
 
@@ -280,8 +316,9 @@ builtins = Map.fromList
   , ("fork",          VFork)
   , ("send",          VBuiltin (\val -> VBuiltin (\(VChan c) -> VIO $ VChan <$> send val c)))
   , ("receive",       VBuiltin (\(VChan c) -> VIO $ receive c >>= \(val, c) -> return $ VCons "(,)" [val, VChan c]))
-  , ("wait",          VBuiltin wait)
+  , ("wait",          VBuiltin (VIO . wait))
   , ("close",         VBuiltin (VIO . close))
+  , ("cancel",        VBuiltin (VIO . cancel))
   , ("send_",         VBuiltin (\val -> VBuiltin (\chan@(VChan c) -> VIO $ chan <$ send val c)))
   , ("receive_",      VBuiltin (\(VChan c) -> VIO $ receive c >>= \(val, c) -> return val))
   -- * I/O

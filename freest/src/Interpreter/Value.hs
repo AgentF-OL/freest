@@ -12,6 +12,7 @@ module Interpreter.Value
   ( ValueCtx, emptyValueCtx
   , Clause
   , Value(..)
+  , Multiplicity(..)
   , ChannelEnd
   , mkClosure
   ) where
@@ -34,9 +35,12 @@ emptyValueCtx = Map.empty
 -- (A 'Nothing' in the list represents a type/multiplicity parameter)
 type Clause = ([Maybe KindedPat], KindedRHS)
 
+data Multiplicity = Lin | Un
+
 -- | A bidirectional channel end: the channel to read from and the channel to
--- write to.
-type ChannelEnd = (C.Chan Value, C.Chan Value)
+-- write to. Includes its multiplicity for operations that only affect linear channels
+-- namely 'cancel'.
+type ChannelEnd = (C.Chan Value, C.Chan Value, Multiplicity)
 
 data Value
   = VInt Int
@@ -50,6 +54,7 @@ data Value
   | VLabel String
   | VFork
   | VChan ChannelEnd
+  | VZap
   | VPack [KindedType] Value
 
 -- | A plain debugging representation. Program output goes through the
@@ -66,6 +71,7 @@ instance Show Value where
   show (VLabel str)     = "<label : " ++ str ++ ">"
   show VFork            = "<fork>"
   show (VChan _)        = "<channel>"
+  show VZap             = "<zap>"
   show (VPack _ vals)   = "<package " ++ show vals ++ ">"
 
 -- | Build a function value from its clauses, capturing the environment. The
