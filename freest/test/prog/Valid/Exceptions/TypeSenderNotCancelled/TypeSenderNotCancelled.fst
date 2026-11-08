@@ -1,24 +1,27 @@
 type Render : 1C
-type Render = ?type a. ?(a -1-> String) ; ?a ; !String ; Wait
+type Render = ?type (a : *T). ?a ; ?(a -1-> String) ; !String ; Wait
 
 render : Render -> ()
 render c =
   try receiveType c as (@typ, c) in
-    try receive c as (f, c) in
-      try receive c as (x, c) in
+    try receive c as (x, c) in
+      try receive c as (f, c) in
         try sendAndWait (f x) c as _ in ()
         unless print "Failed to close channel"
-      unless print "Failed to receive value to render"
-    unless print "Failed to receive render function"
+      unless print "Failed to receive render function"
+    unless print "Failed to receive value to render"
   unless print "Failed to receive type of the value to render"
 
-charRenderer : Dual Render -> String
+charRenderer : Dual Render -> ()
 charRenderer c =
-  let c = c |> sendType @Char |> send showChar |> send 'F' in
-  try receiveAndClose c as str in str
-  unless "Failed to render string"
+  let c = c |> sendType @Char |> send 'F' |> send showChar in
+  try receiveAndClose c as str in print str
+  unless print "Failed to render string"
   where
     showChar : Char -1-> String
     showChar c = "My favourite char is " ++ show c
 
-_ = forkWith render |> charRenderer |> print
+_ =
+  let (joinEnd, awaitEnd) = channel @ForkJoin in
+  forkWith (\c -> render c; join joinEnd) |> charRenderer;
+  await 1 awaitEnd
