@@ -1,4 +1,1 @@
-"[Client] Connection to server lost"
-Nothing
-Just True
-"Shutting down"
+nondeterministic test passed
