@@ -156,16 +156,14 @@ close (VChan (_, w, _)) = do
   return (VCons "()" [])
 
 cancel :: Value -> IO Value
-cancel v = do
-  case v of VChan (_, _, Lin) -> zap v; _ -> pure ()
-  return $ VCons "()" []
+cancel v = zap v >> pure (VCons "()" [])
 
 zap :: Value -> IO ()
 zap v = case v of
   (VCons _ vals) -> mapM_ zap vals
   (VClosure mvals _ _) -> mapM_ (pure . fmap zap) mvals
   (VIO ioval) -> ioval >>= \val -> zap val
-  (VChan (r, w, _)) -> do
+  (VChan (r, w, Lin)) -> do -- no effect on shared channels
     C.writeChan w VZap
     C.writeChan r VZap  -- TODO: there isn't a good way to obtain all the values in the buffer with the Control.Concurrent.Chan module
                         -- without knowing its size (getChanContents retrieves the buffer lazily, so it will simply throw an exception
