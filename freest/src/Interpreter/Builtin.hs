@@ -19,10 +19,10 @@ module Interpreter.Builtin
   ) where
 
 import Control.Concurrent ( forkIO )
-import Control.Concurrent.STM ( atomically, newTQueueIO, readTQueue, writeTQueue )
+import Control.Concurrent.STM ( atomically, newTQueueIO, readTQueue, writeTQueue, isEmptyTChan, tryReadTQueue )
 import Control.Exception (BlockedIndefinitelyOnMVar, BlockedIndefinitelyOnSTM, IOException, SomeException, bracket_, catch, finally, fromException, throwIO)
 import Data.Char ( chr, ord )
-import Data.Functor ( ($>), void )
+import Data.Functor ( ($>), void, (<&>) )
 import qualified Data.Map as Map
 import GHC.Float ( Floating(log1mexp, log1p, expm1, log1pexp) )
 
@@ -139,7 +139,7 @@ receiveLabel c = do
   return (s, c)
 
 send :: Value -> ChannelEnd -> IO ChannelEnd
-send v c@(_, w_, _) = do
+send v c@(_, w, _) = do
   atomically (writeTQueue w v)
   return c
 
@@ -165,22 +165,15 @@ zap v = case v of
   (VClosure mvals _ _) -> mapM_ (pure . fmap zap) mvals
   (VIO ioval) -> ioval >>= \val -> zap val
   (VChan (r, w, Lin{})) -> do -- no effect on shared channels
-    C.writeChan w VZap
-    C.writeChan r VZap  -- TODO: there isn't a good way to obtain all the values in the buffer with the Control.Concurrent.Chan module
-                        -- without knowing its size (getChanContents retrieves the buffer lazily, so it will simply throw an exception
-                        -- if we let it execute until the end) besides reading the buffer one by one while watching for possible exceptions
-                        -- (this write on the reader side is the stopping point).
-                        -- Switching to module Control.Concurrent.STM.TChan would allow for buffer retrieval and
-                        -- also peeking and placing a value back in the buffer. The STM monad can be converted to IO.
-    buffer <- buffer r
+    atomically (writeTQueue w VZap)
+    buffer <- atomically (buffer r)
     mapM_ zap buffer
     where
-      buffer :: C.Chan Value -> IO [Value]
-      buffer r = handleBlockedRead $ do
-        val <- C.readChan r
-        case val of
-          VZap -> pure []
-          _ -> buffer r >>= \vals -> pure (val : vals)
+      buffer r = do
+        mval <- tryReadTQueue r
+        case mval of
+          Nothing -> pure []
+          Just val -> (val :) <$> buffer r
   (VPack _ val) -> zap val
   _ -> pure ()
 
