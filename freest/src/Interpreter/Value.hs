@@ -23,6 +23,7 @@ import System.IO ( Handle )
 
 import Syntax.Base ( Variable )
 import Syntax.Expression ( KindedRHS, KindedPat )
+import Syntax.Kind (Multiplicity(..))
 import Syntax.Type.Kinded ( KindedType )
 
 -- | An environment, composed of bindings from variables to values
@@ -34,8 +35,6 @@ emptyValueCtx = Map.empty
 -- | A clause of a (multi-clause) function or a single @case@ alternative.
 -- (A 'Nothing' in the list represents a type/multiplicity parameter)
 type Clause = ([Maybe KindedPat], KindedRHS)
-
-data Multiplicity = Lin | Un
 
 -- | A bidirectional channel end: the channel to read from and the channel to
 -- write to. Includes its multiplicity for operations that only affect linear channels

@@ -134,7 +134,7 @@ data Exp x
   | Let    Span [LetDecl x] (Exp x)
   | Case   Span (Exp x) [(Pat x, RHS x)]
   | If     Span (Exp x) (Exp x) (Exp x)
-  | Try    Span (Exp x) (Pat x, Exp x) (Exp x)
+  | Try    Span (Exp x) (Pat x) (Exp x) (Exp x) -- try e1 as pat in e2 unless e3
   | Raise  Span
   | List   Span [Exp x]
   | Channel Span (Type x)
@@ -214,7 +214,7 @@ instance Located (Exp x) where
     Let s _ _    -> s
     Case s _ _   -> s
     If s _ _ _   -> s
-    Try s _ _ _  -> s
+    Try s _ _ _ _  -> s
     Raise s -> s
     List s _     -> s
     Channel s _  -> s
@@ -238,7 +238,7 @@ instance Located (Exp x) where
     Let _ ds w    -> Let s ds w
     Case _ e cs   -> Case s e cs
     If _ e1 e2 e3 -> If s e1 e2 e3
-    Try _ try asin unl -> Try s try asin unl
+    Try _ try as inn unl -> Try s try as inn unl
     Raise _ -> Raise s
     List _ es     -> List s es
     Channel _ t   -> Channel s t
@@ -328,7 +328,7 @@ instance Show (XBndKind x) => Show (Exp x) where
                       ++" ⦄)"
                       where showCase (p, e) = show p ++ " -> " ++ show e
     If _ e1 e2 e3  -> "(if "++show e1++" then "++show e2++" else "++show e3++")"
-    Try _ try (as, inn) unl -> "(try "++show try++" as "++show as++" in "++show inn++" unless "++show unl++")"
+    Try _ try as inn unl -> "(try "++show try++" as "++show as++" in "++show inn++" unless "++show unl++")"
     Raise _ -> "raise"
     List _ es      -> "["++intercalate ", " (map show es)++"]"
     Channel _ t    -> "(channel @"++show t++")"
@@ -405,7 +405,7 @@ freeVars = \case
   Case _ target alternatives  -> let freeVarsAlts = Set.unions $ map (\(pat, rhs) -> freeVarsRHS rhs Set.\\ allVarsPat pat) alternatives
                                 in freeVars target `Set.union` freeVarsAlts
   If _ ifExp thenExp elseExp  -> freeVars ifExp `Set.union` freeVars thenExp `Set.union` freeVars elseExp
-  Try _ try (_, inn) unl    -> freeVars try `Set.union` freeVars inn `Set.union` freeVars unl
+  Try _ try _ inn unl         -> freeVars try `Set.union` freeVars inn `Set.union` freeVars unl
   List _ es                   -> Set.unions (map freeVars es)
   SectionL _ e op             -> freeVars e `Set.union` opVar op
   SectionR _ _ op e           -> opVar op `Set.union` freeVars e

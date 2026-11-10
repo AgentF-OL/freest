@@ -491,7 +491,7 @@ Exp :: { E.ParsedExp }
   | '\\' ExpParamsArrow Exp %prec LAMBDA{ E.Abs (spanFromTo $1 $3) (fst $2) (snd $2) $3 }
   | 'if' Exp 'then' Exp 'else' Exp { E.If (spanFromTo $1 $6) $2 $4 $6 }
   | 'case' Exp 'of' CaseBlock { E.Case (spanFromTo $1 (snd $ last $4)) $2 $4 }
-  | 'try' Exp 'as' Pat 'in' Exp 'unless' Exp { E.Try (spanFromTo $1 $8) $2 ($4, $6) $8 }
+  | 'try' Exp 'as' Pat 'in' Exp 'unless' Exp { E.Try (spanFromTo $1 $8) $2 $4 $6 $8 }
   | 'raise' { E.Raise (getSpan $1) }
   | Exp ':' Type { E.Asc (spanFromTo $1 $3) $1 $3 }
   -- Operators

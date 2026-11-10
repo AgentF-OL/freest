@@ -27,10 +27,11 @@ import qualified Data.Map as Map
 import GHC.Float ( Floating(log1mexp, log1p, expm1, log1pexp) )
 
 import Interpreter.Exception (Exception(..))
-import Interpreter.Value ( Value(..), ChannelEnd, Multiplicity(..) )
+import Interpreter.Value ( Value(..), ChannelEnd )
 import Compiler.Bug ( internalError )
 import Parser.Unparser ( unparse )
 import Syntax.Base ( nullSpan )
+import Syntax.Kind ( Multiplicity(..) )
 import System.Environment ( getArgs, getEnvironment, getProgName, lookupEnv )
 import System.Exit ( ExitCode(..) )
 import System.IO ( BufferMode(NoBuffering), Handle, IOMode(..), hClose, hFlush, hGetBuffering, hGetChar, hGetLine, hIsEOF, hIsTerminalDevice, hPutStr, hSetBuffering, isEOF, openFile, stderr, stdin, stdout )
@@ -129,8 +130,8 @@ receive :: ChannelEnd -> IO (Value, ChannelEnd)
 receive c@(r, _, m) = handleBlockedRead $ do
   v <- C.readChan r
   case m of
-    Lin -> raiseOnZap v >> return (v, c)
-    Un -> return (v, c)
+    Lin{} -> raiseOnZap v >> return (v, c)
+    Un{} -> return (v, c)
 
 receiveLabel :: ChannelEnd -> IO (String, ChannelEnd)
 receiveLabel c = do
@@ -163,7 +164,7 @@ zap v = case v of
   (VCons _ vals) -> mapM_ zap vals
   (VClosure mvals _ _) -> mapM_ (pure . fmap zap) mvals
   (VIO ioval) -> ioval >>= \val -> zap val
-  (VChan (r, w, Lin)) -> do -- no effect on shared channels
+  (VChan (r, w, Lin{})) -> do -- no effect on shared channels
     C.writeChan w VZap
     C.writeChan r VZap  -- TODO: there isn't a good way to obtain all the values in the buffer with the Control.Concurrent.Chan module
                         -- without knowing its size (getChanContents retrieves the buffer lazily, so it will simply throw an exception
@@ -201,7 +202,7 @@ asUserError act = act `catch` \(e :: IOException) -> throwIO (UserError nullSpan
 openStream :: IOMode -> (Handle -> ChannelEnd -> IO ()) -> Value -> Value
 openStream mode serve path = VIO $ do
   h <- asUserError (openFile (fstToHsString path) mode)
-  (client, server) <- chan Lin
+  (client, server) <- chan (Lin nullSpan)
   _ <- forkIO (asUserError (serve h server) `finally` hClose h)
   return (VChan client)
 

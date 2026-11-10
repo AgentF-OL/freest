@@ -834,7 +834,7 @@ destructuresExp = \case
   E.Case _ e brs  -> (case e of E.Var _ v -> [(p, v) | (p, _) <- brs]; _ -> [])
                        ++ destructuresExp e ++ concatMap (destructuresRHS . snd) brs
   E.If _ e1 e2 e3 -> destructuresExp e1 ++ destructuresExp e2 ++ destructuresExp e3
-  E.Try _ e1 (pat, e2) e3 -> destructuresExp e1 ++ (case e2 of E.Var _ v -> [(pat, v)]; _ -> [])
+  E.Try _ e1 pat e2 e3 -> destructuresExp e1 ++ (case e2 of E.Var _ v -> [(pat, v)]; _ -> [])
                                ++ destructuresExp e2 ++ destructuresExp e3
   E.List _ es     -> concatMap destructuresExp es
   _               -> []
@@ -1047,12 +1047,12 @@ kindExp tdecls ddecls kctx = \case
     E.If s <$> kindExp tdecls ddecls kctx e1
            <*> kindExp tdecls ddecls kctx e2
            <*> kindExp tdecls ddecls kctx e3
-  E.Try s e1 (pat, e2) e3 -> do
+  E.Try s e1 pat e2 e3 -> do
     e1' <- kindExp tdecls ddecls kctx e1
     (kctx', pat') <- kindPat tdecls kctx pat
     e2' <- kindExp tdecls ddecls kctx' e2
     e3' <- kindExp tdecls ddecls kctx e3
-    return $ E.Try s e1' (pat', e2') e3'
+    return $ E.Try s e1' pat' e2' e3'
   E.Raise s -> pure $ E.Raise s
   E.List s es -> E.List s <$> mapM (kindExp tdecls ddecls kctx) es
   E.Channel s t -> E.Channel s <$> synth kctx t

@@ -299,9 +299,9 @@ eval ctx (E.If _ ifExp thenExp elseExp) = do
   if fstToHsBool ifVal
   then eval ctx thenExp
   else eval ctx elseExp
-eval ctx (E.Try _ tryExp (pat, asinExp) unlessExp) = do
-  mTryVal <- (try :: IO Value -> IO (Either Exception Value)) $ eval ctx tryExp
-  case mTryVal of
+eval ctx (E.Try _ tryExp pat asinExp unlessExp) = do
+  eitherTryVal <- (try :: IO Value -> IO (Either Exception Value)) $ eval ctx tryExp
+  case eitherTryVal of
     Right tryVal -> do
       mb <- matchPat tryVal pat
       binds <- maybe unmatched pure mb
@@ -313,9 +313,7 @@ eval ctx (E.Try _ tryExp (pat, asinExp) unlessExp) = do
 eval ctx (E.Raise s) = throwIO (UserError s "SomeException")
 eval _ (E.Channel s t) = do
   -- obtain channel ends for a fresh channel
-  (chanL, chanR) <- case TK.kindOf t of
-    K.Proper _ (K.Un _) _ -> chan Un
-    K.Proper _ (K.Lin _) _ -> chan Lin
+  (chanL, chanR) <- case TK.kindOf t of K.Proper _ m _ -> chan m
   return $ VCons "(,)" [VChan chanL, VChan chanR]
 eval _ (E.Select _ m (B.Identifier _ iden)) = do
   let (Just (VBuiltin selectBuiltin)) =
