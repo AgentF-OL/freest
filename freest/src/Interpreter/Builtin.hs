@@ -19,10 +19,10 @@ module Interpreter.Builtin
   ) where
 
 import Control.Concurrent ( forkIO )
-import qualified Control.Concurrent.Chan as C ( newChan, readChan, writeChan, getChanContents, Chan )
+import Control.Concurrent.STM ( atomically, newTQueueIO, readTQueue, writeTQueue )
 import Control.Exception (BlockedIndefinitelyOnMVar, BlockedIndefinitelyOnSTM, IOException, SomeException, bracket_, catch, finally, fromException, throwIO)
 import Data.Char ( chr, ord )
-import Data.Functor ( ($>), void, (<&>) )
+import Data.Functor ( ($>), void )
 import qualified Data.Map as Map
 import GHC.Float ( Floating(log1mexp, log1p, expm1, log1pexp) )
 
@@ -111,8 +111,8 @@ asString = \case
 
 chan :: Multiplicity -> IO (ChannelEnd, ChannelEnd)
 chan m = do
-  c1 <- C.newChan
-  c2 <- C.newChan
+  c1 <- newTQueueIO
+  c2 <- newTQueueIO
   return ((c1, c2, m), (c2, c1, m))
 
 handleBlockedRead :: IO a -> IO a
@@ -128,7 +128,7 @@ handleBlockedRead action =
 
 receive :: ChannelEnd -> IO (Value, ChannelEnd)
 receive c@(r, _, m) = handleBlockedRead $ do
-  v <- C.readChan r
+  v <- atomically (readTQueue r)
   case m of
     Lin{} -> raiseOnZap v >> return (v, c)
     Un{} -> return (v, c)
@@ -139,8 +139,8 @@ receiveLabel c = do
   return (s, c)
 
 send :: Value -> ChannelEnd -> IO ChannelEnd
-send v c@(_, w, _) = do
-  C.writeChan w v
+send v c@(_, w_, _) = do
+  atomically (writeTQueue w v)
   return c
 
 sendLabel :: String -> ChannelEnd -> IO ChannelEnd
@@ -153,7 +153,7 @@ wait (VChan c) = receive c <&> fst
 
 close :: Value -> IO Value
 close (VChan (_, w, _)) = do
-  C.writeChan w (VCons "()" [])
+  atomically (writeTQueue w (VCons "()" []))
   return (VCons "()" [])
 
 cancel :: Value -> IO Value
