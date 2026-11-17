@@ -834,7 +834,7 @@ destructuresExp = \case
   E.Case _ e brs  -> (case e of E.Var _ v -> [(p, v) | (p, _) <- brs]; _ -> [])
                        ++ destructuresExp e ++ concatMap (destructuresRHS . snd) brs
   E.If _ e1 e2 e3 -> destructuresExp e1 ++ destructuresExp e2 ++ destructuresExp e3
-  E.Try _ e1 pat e2 e3 -> destructuresExp e1 ++ (case e2 of E.Var _ v -> [(pat, v)]; _ -> [])
+  E.Try _ e1 pat e2 e3 -> (case e1 of E.Var _ v -> [(pat, v)]; _ -> []) ++ destructuresExp e1
                                ++ destructuresExp e2 ++ destructuresExp e3
   E.List _ es     -> concatMap destructuresExp es
   _               -> []

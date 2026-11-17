@@ -12,7 +12,6 @@ module Interpreter.Value
   ( ValueCtx, emptyValueCtx
   , Clause
   , Value(..)
-  , Multiplicity(..)
   , ChannelEnd
   , mkClosure
   ) where
@@ -21,9 +20,10 @@ import Control.Concurrent.STM ( TQueue )
 import qualified Data.Map as Map
 import System.IO ( Handle )
 
-import Syntax.Base ( Variable )
+import Syntax.Base ( Variable, Level )
 import Syntax.Expression ( KindedRHS, KindedPat )
-import Syntax.Kind (Multiplicity(..))
+import Syntax.Kind ( Multiplicity )
+import Syntax.Declarations ( KindedTypeDecls )
 import Syntax.Type.Kinded ( KindedType )
 
 -- | An environment, composed of bindings from variables to values
@@ -34,26 +34,28 @@ emptyValueCtx = Map.empty
 
 -- | A clause of a (multi-clause) function or a single @case@ alternative.
 -- (A 'Nothing' in the list represents a type/multiplicity parameter)
-type Clause = ([Maybe KindedPat], KindedRHS)
+type Clause = ([Level KindedPat Variable Variable], KindedRHS)
 
 -- | A bidirectional channel end: the channel to read from and the channel to
--- write to. Includes its multiplicity for operations that only affect linear channels
--- namely 'cancel'.
-type ChannelEnd = (TQueue Value, TQueue Value, Multiplicity)
+-- write to. Includes its type for operations that only affect linear
+-- channels, namely 'cancel'. This type is updated after each operation.
+type ChannelEnd = (TQueue Value, TQueue Value, KindedType)
 
 data Value
   = VInt Int
   | VFloat Double
   | VChar Char
   | VCons String [Value]
-  | VClosure [Maybe Value] [Clause] ValueCtx
-  | VBuiltin (Value -> Value)
+  | VClosure [Value] [Clause] ValueCtx
+  | VBuiltin (KindedTypeDecls -> Value -> Value)
   | VIO (IO Value)
   | VHandle Handle
   | VLabel String
   | VFork
   | VChan ChannelEnd
   | VZap
+  | VType KindedType
+  | VMult Multiplicity
   | VPack [KindedType] Value
 
 -- | A plain debugging representation. Program output goes through the
@@ -69,8 +71,10 @@ instance Show Value where
   show (VHandle _)      = "<handle>"
   show (VLabel str)     = "<label : " ++ str ++ ">"
   show VFork            = "<fork>"
-  show (VChan _)        = "<channel>"
+  show (VChan (_, _, t))= "<channel " ++ show t ++ ">"
   show VZap             = "<zap>"
+  show (VType t)        = show t
+  show (VMult m)        = show m
   show (VPack _ vals)   = "<package " ++ show vals ++ ">"
 
 -- | Build a function value from its clauses, capturing the environment. The

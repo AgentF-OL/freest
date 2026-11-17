@@ -30,46 +30,47 @@ import Data.Maybe (isJust, fromJust, catMaybes, fromMaybe)
 import qualified Data.Set as Set
 
 import Compiler.Bug (internalError)
-import Interpreter.Exception (Exception(..))
+import Interpreter.Exception (Exception(..), clearBuffers)
 import Interpreter.PatternMatching (matchPat, matchClause, forceColumns)
-import Interpreter.Value (ValueCtx, Clause, Value(..), Multiplicity(..), mkClosure)
+import Interpreter.Value (ValueCtx, Clause, Value(..), mkClosure)
 import Interpreter.Builtin (chan, send, builtins, fstToHsBool, hsToFstString, receive, receiveLabel)
 import qualified Syntax.Type.Kinded as TK
 import qualified Syntax.Base as B
+import qualified Syntax.Declarations as D
 import qualified Syntax.Expression as E
 import qualified Syntax.Kind as K
 import qualified Syntax.Module as M
 
 -- | Bind a clause/alternative's `where` declarations; they are in scope for
 -- both the guards and the bodies of the RHS.
-bindWhere :: ValueCtx -> Maybe [E.KindedLetDecl] -> IO ValueCtx
-bindWhere ctx = \case
+bindWhere :: D.KindedTypeDecls -> ValueCtx -> Maybe [E.KindedLetDecl] -> IO ValueCtx
+bindWhere tdecls ctx = \case
   Nothing    -> return ctx
   Just decls -> do
-    binds <- collectLetDecls ctx decls
+    binds <- collectLetDecls tdecls ctx decls
     return (binds `union` ctx)
 
 -- | Evaluate guards in order, returning the first body whose guard holds, or
 -- 'Nothing' if every guard fails (so matching falls through to the next clause).
-tryGuards :: ValueCtx -> [(E.KindedExp, E.KindedExp)] -> IO (Maybe E.KindedExp)
-tryGuards ctx = \case
+tryGuards :: D.KindedTypeDecls -> ValueCtx -> [(E.KindedExp, E.KindedExp)] -> IO (Maybe E.KindedExp)
+tryGuards tdecls ctx = \case
   [] -> return Nothing
   (guard, body) : guards -> do
-    val <- eval ctx guard
-    if fstToHsBool val then return (Just body) else tryGuards ctx guards
+    val <- eval tdecls ctx guard
+    if fstToHsBool val then return (Just body) else tryGuards tdecls ctx guards
 
 -- | Resolve a RHS in an environment that already holds the pattern bindings:
 -- bind the `where` declarations, then (for a guarded RHS) select a guard.
 -- Returns the chosen body and the environment to evaluate it in, or 'Nothing'
 -- if all guards fail.
-resolveRHS :: ValueCtx -> E.KindedRHS -> IO (Maybe (E.KindedExp, ValueCtx))
-resolveRHS ctx = \case
+resolveRHS :: D.KindedTypeDecls -> ValueCtx -> E.KindedRHS -> IO (Maybe (E.KindedExp, ValueCtx))
+resolveRHS tdecls ctx = \case
   E.UnguardedRHS body whereDecls -> do
-    ctx' <- bindWhere ctx whereDecls
+    ctx' <- bindWhere tdecls ctx whereDecls
     return (Just (body, ctx'))
   E.GuardedRHS guards whereDecls -> do
-    ctx' <- bindWhere ctx whereDecls
-    mBody <- tryGuards ctx' guards
+    ctx' <- bindWhere tdecls ctx whereDecls
+    mBody <- tryGuards tdecls ctx' guards
     return (fmap (, ctx') mBody)
 
 -- | The single matcher shared by functions and @case@ expressions. Tries the
@@ -77,24 +78,24 @@ resolveRHS ctx = \case
 -- chosen only if its columns all match *and* its guards succeed; otherwise we
 -- fall through to the next clause. The given environment is used to evaluate
 -- guards and bodies.
-matchClauses :: ValueCtx -> [Value] -> [Clause] -> IO Value
-matchClauses ctx vals clauses = do
+matchClauses :: D.KindedTypeDecls -> ValueCtx -> [Value] -> [Clause] -> IO Value
+matchClauses tdecls ctx vals clauses = do
   -- perform the session effects (receive/branch/wait) once, up front, turning
   -- channels into ordinary data values; then match the clauses purely.
-  vals' <- forceColumns clauses vals
-  goRows vals' clauses
+  vals' <- forceColumns tdecls clauses vals
+  goRows tdecls vals' clauses
   where
-    goRows vals' = \case
+    goRows tdecls vals' = \case
       [] -> throwIO (NonExhaustivePatterns (clausesSpan clauses))
       (params, rhs) : rest -> do
-        mb <- matchClause (catMaybes params) vals'
+        mb <- matchClause params vals'
         case mb of
-          Nothing    -> goRows vals' rest                -- a column failed
+          Nothing    -> goRows tdecls vals' rest                -- a column failed
           Just binds -> do
-            res <- resolveRHS (binds `union` ctx) rhs
+            res <- resolveRHS tdecls (binds `union` ctx) rhs
             case res of
-              Nothing          -> goRows vals' rest      -- guards failed: fall through
-              Just (exp', ctx') -> eval ctx' exp'
+              Nothing          -> goRows tdecls vals' rest      -- guards failed: fall through
+              Just (exp', ctx') -> eval tdecls ctx' exp'
 
 -- | A source span locating a group of clauses for a non-exhaustive-match error:
 -- the whole group, from the head of the first clause to the body of the last.
@@ -103,7 +104,7 @@ clausesSpan = \case
   []  -> B.nullSpan
   cls -> B.spanFromTo (clauseHead (head cls)) (B.getSpan (snd (last cls)))
   where
-    clauseHead (params, rhs) = case catMaybes params of
+    clauseHead (params, rhs) = case params of
       p : _ -> B.getSpan p
       []    -> B.getSpan rhs
 
@@ -117,47 +118,44 @@ clausesSpan = \case
 --
 -- A definition whose name is a builtin (e.g. @(+) = undefined@) is bound to the
 -- builtin rather than to its user-written right-hand side.
-collectLetDecls :: ValueCtx -> [E.KindedLetDecl] -> IO ValueCtx
-collectLetDecls outer = go outer empty
+collectLetDecls :: D.KindedTypeDecls -> ValueCtx -> [E.KindedLetDecl] -> IO ValueCtx
+collectLetDecls tdecls outer = go tdecls outer empty
   where
     -- `ctx` = outer + the bindings so far; `acc` = just the new bindings
-    go :: ValueCtx -> ValueCtx -> [E.KindedLetDecl] -> IO ValueCtx
-    go ctx acc = \case
+    go :: D.KindedTypeDecls -> ValueCtx -> ValueCtx -> [E.KindedLetDecl] -> IO ValueCtx
+    go tdecls ctx acc = \case
       [] -> pure acc
       d : ds -> case d of
-        E.TypeSig _ _ -> go ctx acc ds
+        E.TypeSig _ _ -> go tdecls ctx acc ds
 
         -- a single function is recursive in its own name (self-knot)
         E.FnDef var clauses ->
-          let val = fromMaybe (mkClosure (insert var val ctx) (funClauses clauses))
+          let val = fromMaybe (mkClosure (insert var val ctx) clauses)
                               (Data.Map.lookup (B.external var) builtins)
-          in go (insert var val ctx) (insert var val acc) ds
+          in go tdecls (insert var val ctx) (insert var val acc) ds
 
         -- the functions of a `mutual` block are mutually recursive
         E.Mutual mds ->
-          let mbinds    = fromList [ (var, mkClosure mutualCtx (funClauses clauses))
+          let mbinds    = fromList [ (var, mkClosure mutualCtx clauses)
                                    | E.FnDef var clauses <- mds ]
               mutualCtx = ctx `union` mbinds
-          in go mutualCtx (acc `union` mbinds) ds
+          in go tdecls mutualCtx (acc `union` mbinds) ds
 
         -- a value is not recursive: evaluate it in the current environment
         E.ValDef pat rhs
           | Just b <- builtinForPat pat ->
-              go (insertVarPat pat b ctx) (insertVarPat pat b acc) ds
+              go tdecls (insertVarPat pat b ctx) (insertVarPat pat b acc) ds
           | otherwise -> do
-              res <- resolveRHS ctx rhs
+              res <- resolveRHS tdecls ctx rhs
               (e, ctx') <- maybe unmatched pure res
-              v     <- eval ctx' e
+              v     <- eval tdecls ctx' e
               mb    <- matchPat v pat
               binds <- maybe unmatched pure mb
-              go (binds `union` ctx) (binds `union` acc) ds
-              where 
+              go tdecls (binds `union` ctx) (binds `union` acc) ds
+              where
               unmatched :: IO r
               unmatched = throwIO (NonExhaustivePatterns (B.getSpan pat)) :: IO r
 
-    funClauses = map (first (map paramPat))
-    paramPat (B.ExpLevel p) = Just p
-    paramPat _              = Nothing
     builtinForPat = \case
       E.VarPat _ var -> Data.Map.lookup (B.external var) builtins
       _              -> Nothing
@@ -168,7 +166,7 @@ collectLetDecls outer = go outer empty
 -- running their side effects and returning the new bindings. The REPL threads
 -- this across inputs; 'interpret' runs it once from the empty environment.
 evalModule :: ValueCtx -> M.KindedModule -> IO ValueCtx
-evalModule ctx m = (`union` ctx) <$> collectLetDecls ctx (M.definitions m)
+evalModule ctx m = (`union` ctx) <$> collectLetDecls (M.typeDecls m) ctx (M.definitions m)
 
 -- | Lookup a variable in the context
 ctxLookup :: ValueCtx -> B.Variable -> Value
@@ -177,12 +175,18 @@ ctxLookup ctx var =
     Just val -> val
     Nothing -> internalError $ "Variable `" ++ show var ++ "` not found in the context."
 
+notTypeOrMult :: Value -> Bool
+notTypeOrMult = \case
+  VType _ -> False
+  VMult _ -> False
+  _ -> True
+
 -- | Evaluate application expressions
-handleApplication :: ValueCtx -> Value -> [Maybe Value] -> IO Value
-handleApplication _ func [] = return func
-handleApplication _ (VCons cons vals) args = do
-  return $ VCons cons $ vals ++ termArgs args
-handleApplication ctx (VClosure collected clauses cctx) args = do
+handleApplication :: D.KindedTypeDecls -> ValueCtx -> Value -> [Value] -> IO Value
+handleApplication _ _ func [] = return func
+handleApplication _ _ (VCons cons vals) args = do
+  return $ VCons cons $ vals ++ filter notTypeOrMult args
+handleApplication tdecls ctx (VClosure collected clauses cctx) args = do
   let allArgs = collected ++ args
       arity   = length (fst (head clauses))
   -- not enough arguments yet (term *or* type/mult slots): stay a partial value
@@ -192,27 +196,22 @@ handleApplication ctx (VClosure collected clauses cctx) args = do
   -- arguments, in the closure's self-contained captured environment
   else do
     let (these, rest) = splitAt arity allArgs
-    result <- matchClauses cctx (termArgs these) clauses
+    result <- matchClauses tdecls cctx these clauses
     -- any leftover arguments are applied to the result
     if null rest then return result
-    else handleApplication ctx result rest
-handleApplication ctx (VBuiltin builtin) args = foldM applyOne (VBuiltin builtin) (termArgs args)
+    else handleApplication tdecls ctx result rest
+handleApplication tdecls _ (VBuiltin builtin) args = foldM applyOne (VBuiltin builtin) (filter notTypeOrMult args)
   where
     -- Between builtin applications, force any 'VIO' result so effects
     -- (e.g. the exception thrown by 'error') fire in time for the
     -- enclosing App's 'catch' to attach the call-site span.
-    applyOne (VBuiltin f) arg = pure (f arg)
-    applyOne (VIO io)     arg = io >>= \v -> applyOne v arg
-    applyOne v            _   = internalError $ "handleApplication: cannot apply value " ++ show v
-handleApplication ctx VFork args = case termArgs args of
-  [fun] -> forkIO (void $ handleApplication ctx fun [Just (VCons "()" [])]) $> VCons "()" []
+    applyOne (VBuiltin f) arg       = pure (f tdecls arg)
+    applyOne (VIO io)     arg       = io >>= \v -> applyOne v arg
+    applyOne v            _         = internalError $ "handleApplication: cannot apply value " ++ show v
+handleApplication tdecls ctx VFork args = case filter notTypeOrMult args of
+  [fun] -> forkIO (void $ handleApplication tdecls ctx fun [VCons "()" []]) $> VCons "()" []
   []    -> return VFork    -- only type/multiplicity applied so far
   _     -> internalError "fork applied to too many arguments"
-
--- | The term-level (value) arguments of an applied list; type and multiplicity
--- applications carry no runtime value.
-termArgs :: [Maybe Value] -> [Value]
-termArgs = catMaybes
 
 -- | Attach a span to an exception, but only if the exception has none yet.
 -- Enclosing 'App' layers keep the innermost span rather than clobbering it
@@ -243,94 +242,96 @@ attachSpan s e
 -- MAIN FUNCTIONS
 
 -- | Evaluate expressions, encoded as Syntax.Expression.Exp
-eval :: ValueCtx -> E.KindedExp -> IO Value
-eval _ (E.Int _ i) =
+eval :: D.KindedTypeDecls -> ValueCtx -> E.KindedExp -> IO Value
+eval _ _ (E.Int _ i) =
   return $ VInt i
-eval _ (E.Float _ f) =
+eval _ _ (E.Float _ f) =
   return $ VFloat f
-eval _ (E.Char _ c) =
+eval _ _ (E.Char _ c) =
   return $ VChar c
-eval _ (E.String _ s) =
+eval _ _ (E.String _ s) =
   -- a string literal is the @Char@ cons-list @['a','b',...]@
   return $ hsToFstString s
-eval _ (E.DCons _ (B.Identifier _ str)) =
+eval _ _ (E.DCons _ (B.Identifier _ str)) =
   return $ VCons str []
-eval ctx (E.List _ es) = do
-  vs <- mapM (eval ctx) es
+eval tdecls ctx (E.List _ es) = do
+  vs <- mapM (eval tdecls ctx) es
   return $ foldr (\v acc -> VCons "(::)" [v, acc]) (VCons "[]" []) vs
-eval ctx (E.Var _ var) =
+eval _ ctx e@(E.Var _ var) =
   case ctxLookup ctx var of
     VIO io -> io
     val -> return val
-eval ctx (E.App span exp args) = do
-  func <- eval ctx exp
+eval tdecls ctx (E.App span exp args) = do
+  func <- eval tdecls ctx exp
   -- evaluate term arguments; type/multiplicity applications carry no value but
   -- still consume one of the closure's slots (so it stays a value until filled)
   evalArgs <- mapM evalArg args
-  res <- handleApplication ctx func evalArgs `catch` \(e :: Exception) -> throwIO (attachSpan span e)
+  res <- handleApplication tdecls ctx func evalArgs `catch` \(e :: Exception) -> throwIO (attachSpan span e)
   case res of
     VIO io -> io `catch` \(e :: Exception) -> throwIO (attachSpan span e)
     _ -> return res
   where
-    evalArg (B.ExpLevel e) = Just <$> eval ctx e
-    evalArg _              = pure Nothing
-eval ctx (E.Abs _ params _ body) =
+    evalArg (B.ExpLevel e) = eval tdecls ctx e
+    evalArg (B.TypeLevel t) = pure $ VType t
+    evalArg (B.MultLevel m) = pure $ VMult m
+eval _ ctx (E.Abs _ params _ body) =
   -- a lambda is a one-clause function (no guards, no `where`); the parameter
   -- list keeps its type/mult slots so a trailing one suspends the closure
   return $ mkClosure ctx [(map clauseParam params, E.UnguardedRHS body Nothing)]
   where
-    clauseParam (B.ExpLevel (p, _)) = Just p
-    clauseParam _                   = Nothing
-eval ctx (E.Pack span types exp) = do
-  val <- eval ctx exp
+    clauseParam (B.ExpLevel (p, _))  = B.ExpLevel p
+    clauseParam (B.TypeLevel (v, _)) = B.TypeLevel v
+    clauseParam (B.MultLevel m)      = B.MultLevel m
+eval tdecls ctx (E.Pack span types exp) = do
+  val <- eval tdecls ctx exp
   return $ VPack types val
-eval ctx (E.Asc span exp typ) = do
-  eval ctx exp
-eval ctx (E.Let _ decls exp) = do
-  letBindings <- collectLetDecls ctx decls
-  eval (ctx `union` letBindings) exp
-eval ctx (E.Case _ exp alternatives) = do
-  val <- eval ctx exp
+eval tdecls ctx (E.Asc span exp typ) = do
+  eval tdecls ctx exp
+eval tdecls ctx e@(E.Let _ decls exp) = do
+  letBindings <- collectLetDecls tdecls ctx decls
+  eval tdecls (ctx `union` letBindings) exp
+eval tdecls ctx (E.Case _ exp alternatives) = do
+  val <- eval tdecls ctx exp
   -- a `case` is the one-column instance of the clause matcher (session effects,
   -- including choice patterns, are handled inside it)
-  matchClauses ctx [val] (map (\(p, rhs) -> ([Just p], rhs)) alternatives)
-eval ctx (E.If _ ifExp thenExp elseExp) = do
-  ifVal <- eval ctx ifExp
+  matchClauses tdecls ctx [val] (map (\(p, rhs) -> ([B.ExpLevel p], rhs)) alternatives)
+eval tdecls ctx (E.If _ ifExp thenExp elseExp) = do
+  ifVal <- eval tdecls ctx ifExp
   if fstToHsBool ifVal
-  then eval ctx thenExp
-  else eval ctx elseExp
-eval ctx (E.Try _ tryExp pat asinExp unlessExp) = do
-  eitherTryVal <- (try :: IO Value -> IO (Either Exception Value)) $ eval ctx tryExp
+  then eval tdecls ctx thenExp
+  else eval tdecls ctx elseExp
+eval tdecls ctx (E.Try _ tryExp pat asinExp unlessExp) = do
+  eitherTryVal <- (try :: IO Value -> IO (Either Exception Value)) $ eval tdecls ctx tryExp
   case eitherTryVal of
     Right tryVal -> do
       mb <- matchPat tryVal pat
       binds <- maybe unmatched pure mb
-      eval (ctx `union` binds) asinExp
-    Left exn -> eval ctx unlessExp
+      eval tdecls (ctx `union` binds) asinExp
+    Left exn -> eval tdecls ctx unlessExp
   where
     unmatched :: IO r
     unmatched = throwIO (NonExhaustivePatterns (B.getSpan pat)) :: IO r
-eval ctx (E.Raise s) = throwIO (UserError s "SomeException")
-eval _ (E.Channel s t) = do
+eval _ ctx (E.Raise s) = throwIO (SomeException s "SomeException")
+eval tdecls ctx (E.Channel s t) = do
   -- obtain channel ends for a fresh channel
-  (chanL, chanR) <- case TK.kindOf t of K.Proper _ m _ -> chan m
+  (chanL, chanR) <- chan $ case t of TK.Var _ _ B.ObjLv var -> (case ctxLookup ctx var of VType t' -> t'); _ -> t
   return $ VCons "(,)" [VChan chanL, VChan chanR]
-eval _ (E.Select _ m (B.Identifier _ iden)) = do
+eval tdecls ctx (E.Select _ m (B.Identifier _ iden)) = do
   let (Just (VBuiltin selectBuiltin)) =
         Data.Map.lookup (if K.isUn m then "select_" else "select") builtins
-  return $ selectBuiltin (VLabel iden)
+  return $ selectBuiltin tdecls (VLabel iden)
   {- return $ VSelect iden -}
-eval _ (E.SendType _ _) =
+eval _ _ (E.SendType _ _) =
   return $ fromJust $ Data.Map.lookup "sendType" builtins
   {- return VSendType -}
-eval _ (E.ReceiveType _) =
+eval _ _ (E.ReceiveType _) =
   return $ fromJust $ Data.Map.lookup "receiveType" builtins
   {- return VRecvType -}
-eval ctx (E.SectionL s e op) =
-  eval ctx (E.App s (either (E.Var s) (E.DCons s) op) [B.ExpLevel e])
-eval ctx (E.SectionR s x op e) =
+eval tdecls ctx (E.SectionL s e op) =
+  eval tdecls ctx (E.App s (either (E.Var s) (E.DCons s) op) [B.ExpLevel e])
+eval _ ctx (E.SectionR s x op e) =
   return $ mkClosure ctx
-    [ ( [Just (E.VarPat s x)]
+    [ ( [B.ExpLevel (E.VarPat s x)]
       , E.UnguardedRHS (E.App s (either (E.Var s) (E.DCons s) op)
                           [B.ExpLevel (E.Var s x), B.ExpLevel e]) Nothing ) ]
 

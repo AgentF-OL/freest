@@ -7,16 +7,23 @@ Runtime exceptions raised by the interpreter.
 -}
 module Interpreter.Exception
   ( Exception(..)
+  , raiseOnZap
+  , clearBuffers
   , printException
   , reportThreadFailure
   ) where
 
+import Control.Concurrent.STM ( atomically, readTQueue, writeTQueue, tryReadTQueue )
 import Control.Exception qualified as E
+import Data.Functor ( void )
 import System.Exit ( ExitCode )
 import System.IO ( BufferMode(BlockBuffering), hFlush, hPutStrLn, hSetBuffering, stderr )
 
-import Compiler.Bug ( reportBug )
-import Syntax.Base ( Span, Located(..) )
+import Compiler.Bug ( reportBug, internalError )
+import Interpreter.Value ( Value(..) )
+import Syntax.Base ( Span, Located(..), nullSpan )
+import Syntax.Type.Kinded ( kindOf )
+import Syntax.Kind ( Multiplicity(..), Kind(..) )
 import UI.Error ( Source, header, snippet )
 
 -- | A runtime error raised by the interpreter.
@@ -24,16 +31,19 @@ data Exception
   = NonExhaustivePatterns Span
   | BlockedIndefinitely Span String
   | UserError Span String
+  | SomeException Span String
 
 instance Located Exception where
   getSpan = \case
     NonExhaustivePatterns s -> s
     BlockedIndefinitely s _ -> s
     UserError s _ -> s
+    SomeException s _ -> s
   setSpan s = \case
     NonExhaustivePatterns _ -> NonExhaustivePatterns s
     BlockedIndefinitely _ msg -> BlockedIndefinitely s msg
     UserError _ msg -> UserError s msg
+    SomeException _ msg -> SomeException s msg
 
 instance Show Exception where
   show e = show (getSpan e) ++ ": exception:\n" ++ message e
@@ -46,6 +56,38 @@ message = \case
   NonExhaustivePatterns _ -> "Non-exhaustive patterns"
   BlockedIndefinitely _ msg -> msg
   UserError _ msg -> msg
+  SomeException _ msg -> msg
+
+zap :: Value -> IO ()
+zap = \case
+  (VCons _ vals) -> mapM_ zap vals
+  (VClosure vals _ _) -> mapM_ zap vals
+  (VIO ioval) -> ioval >>= \val -> zap val
+  c@(VChan (r, w, kindOf -> Proper _ Lin{} _)) -> do -- no effect on shared channels
+    atomically (writeTQueue w VZap)
+    buffer <- atomically (buffer r)
+    mapM_ zap buffer
+    where
+      buffer r = do
+        mval <- tryReadTQueue r
+        case mval of
+          Nothing -> pure []
+          Just val -> (val :) <$> buffer r
+  (VPack _ val) -> zap val
+  _ -> pure ()
+
+-- | Raise 'SomeException' with the given value context if the given value was VZap,
+-- a special warning value sent by the 'cancel' built-in function. Otherwise, returns
+-- the value.
+raiseOnZap :: Value -> IO Value
+raiseOnZap = \case
+  VZap -> E.throwIO (SomeException nullSpan "Channel Cancelled")
+  v -> pure v
+
+-- | Clear the buffers of all linear sessions in the given values, including the buffers
+-- of linear sessions inside another buffer. No effect on any other values.
+clearBuffers :: Traversable t => t Value -> IO ()
+clearBuffers = mapM_ zap
 
 makeException :: Located a => Source -> a -> String -> String
 makeException src (getSpan -> s) msg =

@@ -35,9 +35,12 @@ import Data.Map (empty, singleton, union, insert)
 import Data.Maybe (catMaybes)
 
 import Interpreter.Value (Value(..), ValueCtx, Clause)
-import Interpreter.Builtin (receive, receiveLabel)
+import Interpreter.Builtin (receive, receiveLabel, receiveLabel_)
 import qualified Syntax.Base as B
+import qualified Syntax.Declarations as D
 import qualified Syntax.Expression as E
+import qualified Syntax.Kind as K
+import qualified Syntax.Type.Kinded as T
 
 -- * Pure matching (run after 'forceColumns')
 
@@ -59,7 +62,7 @@ matchPat v = \case
       _             -> pure Nothing
   E.DConsPat _ (B.Identifier _ con) ps ->
     case v of
-      VCons con' vs | con == con' && length ps == length vs -> matchClause ps vs
+      VCons con' vs | con == con' && length ps == length vs -> matchClause (map B.ExpLevel ps) vs
       _                                                      -> pure Nothing
   -- Session patterns, matched against the forced representations:
   --   a chosen branch  &l   →  VCons l [continuation]
@@ -71,7 +74,7 @@ matchPat v = \case
       _                                     -> pure Nothing
   E.InPat _ _ p1 p2 ->
     case v of
-      VCons "(,)" [v1, v2] -> matchClause [p1, p2] [v1, v2]
+      VCons "(,)" [v1, v2] -> matchClause [B.ExpLevel p1, B.ExpLevel p2] [v1, v2]
       _                    -> pure Nothing
   E.TypeInPat _ _ p -> matchPat v p   -- the type input was already consumed
   E.WaitPat _       -> pure (Just empty)
@@ -87,13 +90,15 @@ stringMatches _        _                              = False
 
 -- | Match a column of patterns left-to-right against a list of values, failing
 -- fast and unioning the bindings.
-matchClause :: [E.KindedPat] -> [Value] -> IO (Maybe ValueCtx)
+matchClause :: [B.Level E.KindedPat B.Variable B.Variable] -> [Value] -> IO (Maybe ValueCtx)
 matchClause []       []       = pure (Just empty)
-matchClause (p : ps) (v : vs) = do
+matchClause (B.ExpLevel p : ls) (v : vs) = do
   mb <- matchPat v p
   case mb of
     Nothing -> pure Nothing
-    Just b  -> fmap (union b) <$> matchClause ps vs
+    Just b  -> fmap (union b) <$> matchClause ls vs
+matchClause (B.TypeLevel v : ls) (val@(VType _) : vs) = fmap (union (singleton v val)) <$> matchClause ls vs
+matchClause (B.MultLevel v: ls) (val@(VMult _) : vs) = fmap (union (singleton v val)) <$> matchClause ls vs
 matchClause _ _ = pure Nothing   -- arity mismatch
 
 -- * Session forcing pass
@@ -102,24 +107,24 @@ matchClause _ _ = pure Nothing   -- arity mismatch
 -- values, turning channels into ordinary data values. The patterns of all the
 -- clauses (one column list per clause) guide which effect to perform; by the
 -- type system they agree on the session structure of every position.
-forceColumns :: [Clause] -> [Value] -> IO [Value]
-forceColumns clauses = zipWithM forceCol (transpose (map (catMaybes . fst) clauses))
+forceColumns :: D.KindedTypeDecls -> [Clause] -> [Value] -> IO [Value]
+forceColumns tdecls clauses = zipWithM (forceCol tdecls) (transpose (map fst clauses))
 
 -- | Force one position, given the patterns the clauses use there.
-forceCol :: [E.KindedPat] -> Value -> IO Value
-forceCol pats val = case val of
+forceCol :: D.KindedTypeDecls -> [B.Level E.KindedPat B.Variable B.Variable] -> Value -> IO Value
+forceCol tdecls pats val = case val of
   -- a channel reached by a session pattern: perform its effect (once)
   VChan _ ->
     case filter isSessionPat (map stripAs pats) of
-      (E.ChoicePat{} : _) -> forceChoice pats val   -- needs the whole column (see below)
-      (sp : _)            -> performEffect sp val
-      []                  -> pure val               -- only bound (var pattern): no effect
+      (B.ExpLevel E.ChoicePat{} : _) -> forceChoice tdecls pats val   -- needs the whole column (see below)
+      (B.ExpLevel sp : _)            -> performEffect tdecls sp val
+      []                             -> pure val                      -- only bound (var pattern): no effect
   -- recurse into data, using the sub-patterns of the clauses that match `con`
   VCons con vs ->
-    let subColumns = transpose [ ps | E.DConsPat _ (B.Identifier _ con') ps <- map stripAs pats
+    let subColumns = transpose [ ps | B.ExpLevel (E.DConsPat _ (B.Identifier _ con') ps) <- map stripAs pats
                                     , con' == con, length ps == length vs ]
     in if null subColumns then pure val
-       else VCons con <$> zipWithM forceCol subColumns vs
+       else VCons con <$> zipWithM (forceCol tdecls) (map (map B.ExpLevel) subColumns) vs
   _ -> pure val
 
 -- | Force an external choice: receive the label, then force the continuation
@@ -128,41 +133,41 @@ forceCol pats val = case val of
 -- too. (Mirrors the @VCons@ recursion in 'forceCol': commit to the branch the
 -- peer actually chose, then recurse into it. The type system guarantees the
 -- selected clauses agree on the continuation's session structure.)
-forceChoice :: [E.KindedPat] -> Value -> IO Value
-forceChoice pats (VChan c) = do
-  (label, c') <- receiveLabel c
-  let conts = [ q | E.ChoicePat _ _ (B.Identifier _ l) q <- map stripAs pats, l == label ]
-  forced <- forceCol conts (VChan c')
+forceChoice :: D.KindedTypeDecls -> [B.Level E.KindedPat B.Variable B.Variable] -> Value -> IO Value
+forceChoice tdecls pats (VChan c@(_, _, t)) = do
+  (label, c') <- case T.kindOf t of K.Proper _ K.Lin{} _ -> receiveLabel tdecls c; K.Proper _ K.Un{} _ -> receiveLabel_ tdecls c
+  let conts = [ q | B.ExpLevel (E.ChoicePat _ _ (B.Identifier _ l) q) <- map stripAs pats, l == label ]
+  forced <- forceCol tdecls (map B.ExpLevel conts) (VChan c')
   pure (VCons label [forced])
-forceChoice _ v = pure v
+forceChoice _ _ v = pure v
 
 -- | Perform a session pattern's effect on a channel, producing the forced value
 -- that 'matchPat' then matches purely. (External choice is handled by
 -- 'forceChoice', which needs the whole pattern column.)
-performEffect :: E.KindedPat -> Value -> IO Value
-performEffect (E.InPat _ _ p1 p2) (VChan c) = do
-  (v, c') <- receive c
-  v'  <- forceCol [p1] v
-  c'' <- forceCol [p2] (VChan c')
+performEffect :: D.KindedTypeDecls -> E.KindedPat -> Value -> IO Value
+performEffect tdecls (E.InPat _ _ p1 p2) (VChan c) = do
+  (v, c') <- receive tdecls c
+  v'  <- forceCol tdecls [B.ExpLevel p1] v
+  c'' <- forceCol tdecls [B.ExpLevel p2] (VChan c')
   pure (VCons "(,)" [v', c''])
-performEffect (E.TypeInPat _ _ p) (VChan c) = do
-  (_, c') <- receive c                  -- consume the (erased) type message
-  forceCol [p] (VChan c')
-performEffect (E.WaitPat _) (VChan c) = do
-  _ <- receive c                        -- wait for the peer to close
+performEffect tdecls (E.TypeInPat _ _ p) (VChan c) = do
+  (_, c') <- receive tdecls c                  -- consume the (erased) type message
+  forceCol tdecls [B.ExpLevel p] (VChan c')
+performEffect tdecls (E.WaitPat _) (VChan c) = do
+  _ <- receive tdecls c                        -- wait for the peer to close
   pure (VCons "()" [])
-performEffect _ v = pure v
+performEffect _ _ v = pure v
 
-isSessionPat :: E.KindedPat -> Bool
+isSessionPat :: B.Level E.KindedPat B.Variable B.Variable -> Bool
 isSessionPat = \case
-  E.ChoicePat{} -> True
-  E.InPat{}     -> True
-  E.TypeInPat{} -> True
-  E.WaitPat{}   -> True
+  B.ExpLevel (E.ChoicePat{}) -> True
+  B.ExpLevel (E.InPat{})     -> True
+  B.ExpLevel (E.TypeInPat{}) -> True
+  B.ExpLevel (E.WaitPat{})   -> True
   _             -> False
 
 -- | 'AsPat' is transparent for the purpose of finding the session structure.
-stripAs :: E.KindedPat -> E.KindedPat
+stripAs :: B.Level E.KindedPat B.Variable B.Variable -> B.Level E.KindedPat B.Variable B.Variable
 stripAs = \case
-  E.AsPat _ _ p -> stripAs p
-  p             -> p
+  B.ExpLevel (E.AsPat _ _ p) -> stripAs $ B.ExpLevel p
+  l             -> l

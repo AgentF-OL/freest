@@ -15,6 +15,7 @@ module Interpreter.Builtin
   , chan
   , receive
   , receiveLabel
+  , receiveLabel_
   , send
   ) where
 
@@ -24,14 +25,18 @@ import Control.Exception (BlockedIndefinitelyOnMVar, BlockedIndefinitelyOnSTM, I
 import Data.Char ( chr, ord )
 import Data.Functor ( ($>), void, (<&>) )
 import qualified Data.Map as Map
+import Data.Maybe ( fromJust )
 import GHC.Float ( Floating(log1mexp, log1p, expm1, log1pexp) )
 
-import Interpreter.Exception (Exception(..))
+import Interpreter.Exception ( Exception(..), raiseOnZap, clearBuffers )
 import Interpreter.Value ( Value(..), ChannelEnd )
 import Compiler.Bug ( internalError )
 import Parser.Unparser ( unparse )
-import Syntax.Base ( nullSpan )
-import Syntax.Kind ( Multiplicity(..) )
+import Syntax.Base ( Identifier(..), nullSpan, Polarity(..) )
+import qualified Syntax.Type.Kinded as T
+import Syntax.Declarations ( KindedTypeDecls )
+import Syntax.Kind ( Multiplicity(..), Kind(..), lt )
+import Validation.Normalisation ( normalise )
 import System.Environment ( getArgs, getEnvironment, getProgName, lookupEnv )
 import System.Exit ( ExitCode(..) )
 import System.IO ( BufferMode(NoBuffering), Handle, IOMode(..), hClose, hFlush, hGetBuffering, hGetChar, hGetLine, hIsEOF, hIsTerminalDevice, hPutStr, hSetBuffering, isEOF, openFile, stderr, stdin, stdout )
@@ -109,11 +114,11 @@ asString = \case
   VCons "(::)" [VChar c, rest] -> (c :) <$> asString rest
   _                            -> Nothing
 
-chan :: Multiplicity -> IO (ChannelEnd, ChannelEnd)
-chan m = do
+chan :: T.KindedType -> IO (ChannelEnd, ChannelEnd)
+chan t = do
   c1 <- newTQueueIO
   c2 <- newTQueueIO
-  return ((c1, c2, m), (c2, c1, m))
+  return ((c1, c2, t), (c2, c1, T.AppDual nullSpan t))
 
 handleBlockedRead :: IO a -> IO a
 handleBlockedRead action =
@@ -126,61 +131,99 @@ handleBlockedRead action =
           throwIO (BlockedIndefinitely nullSpan "Thread blocked indefinitely while waiting to read from a channel endpoint")
         Nothing -> throwIO e
 
-receive :: ChannelEnd -> IO (Value, ChannelEnd)
-receive c@(r, _, m) = handleBlockedRead $ do
+receive :: KindedTypeDecls -> ChannelEnd -> IO (Value, ChannelEnd)
+receive tdecls (r, w, t) = handleBlockedRead $ do
   v <- atomically (readTQueue r)
-  case m of
-    Lin{} -> raiseOnZap v >> return (v, c)
-    Un{} -> return (v, c)
+  raiseOnZap v
+  return (v, (r, w, case normalise tdecls t of
+      T.AppMessage _ Lin{} Neg _ -> T.Skip nullSpan
+      T.AppSemi _ (T.AppMessage _ Lin{} Neg _) t' -> t'
+    ))
 
-receiveLabel :: ChannelEnd -> IO (String, ChannelEnd)
-receiveLabel c = do
-  (VLabel s, _) <- receive c
-  return (s, c)
+receive_ :: KindedTypeDecls -> ChannelEnd -> IO (Value, ChannelEnd)
+receive_ tdecls (r, w, t) = handleBlockedRead $ do
+  v <- atomically (readTQueue r)
+  return (v, (r, w, case normalise tdecls t of
+      t'@(T.AppMessage _ Un{} Neg _) -> t'
+      T.AppSemi _ t'@(T.AppMessage _ Un{} Neg _) _ -> t'
+    ))
 
-send :: Value -> ChannelEnd -> IO ChannelEnd
-send v c@(_, w, _) = do
+receiveLabel :: KindedTypeDecls -> ChannelEnd -> IO (String, ChannelEnd)
+receiveLabel tdecls (r, w, t) = handleBlockedRead $ do
+  v <- atomically (readTQueue r)
+  raiseOnZap v
+  let s = case v of VLabel s -> s
+  return (s, (r, w, case normalise tdecls t of
+      T.AppLinChoice _ Neg lts -> fromJust $ lookup (Identifier nullSpan s) lts
+    ))
+
+receiveLabel_ :: KindedTypeDecls -> ChannelEnd -> IO (String, ChannelEnd)
+receiveLabel_ tdecls (r, w, t) = handleBlockedRead $ do
+  VLabel s <- atomically (readTQueue r)
+  return (s, (r, w, case normalise tdecls t of
+      t'@(T.UnChoice _ Neg _) -> t'
+      T.AppSemi _ t'@(T.UnChoice _ Neg _) _ -> t'
+    ))
+
+receiveType :: KindedTypeDecls -> ChannelEnd -> IO (Value, ChannelEnd)
+receiveType tdecls (r, w, t) = handleBlockedRead $ do
+  v <- atomically (readTQueue r)
+  raiseOnZap v
+  return (v, (r, w, case normalise tdecls t of
+      T.AppQuantS _ Neg _ _ t' -> t'
+    ))
+
+send :: KindedTypeDecls -> Value -> ChannelEnd -> IO ChannelEnd
+send tdecls v (r, w, t) = do
   atomically (writeTQueue w v)
-  return c
+  return (r, w, case normalise tdecls t of
+      T.AppMessage _ Lin{} Pos _ -> T.Skip nullSpan
+      T.AppSemi _ (T.AppMessage _ Lin{} Pos _) t' -> t'
+    )
 
-sendLabel :: String -> ChannelEnd -> IO ChannelEnd
-sendLabel s c = do
-  send (VLabel s) c
-  return c
+send_ :: KindedTypeDecls -> Value -> ChannelEnd -> IO ChannelEnd
+send_ tdecls v (r, w, t) = do
+  atomically (writeTQueue w v)
+  return (r, w, case normalise tdecls t of
+      t'@(T.AppMessage _ Un{} Pos _) -> t'
+      T.AppSemi _ t'@(T.AppMessage _ Un{} Pos _) _ -> t'
+    )
+
+sendLabel :: KindedTypeDecls -> String -> ChannelEnd -> IO ChannelEnd
+sendLabel tdecls s (r, w, t) = do
+  atomically (writeTQueue w (VLabel s))
+  return (r, w, case normalise tdecls t of
+      T.AppLinChoice _ Pos its -> fromJust $ lookup (Identifier nullSpan s) its
+    )
+
+sendLabel_ :: KindedTypeDecls -> String -> ChannelEnd -> IO ChannelEnd
+sendLabel_ tdecls s (r, w, t) = do
+  atomically (writeTQueue w (VLabel s))
+  return (r, w, case normalise tdecls t of
+      t'@(T.UnChoice _ Pos _) -> t'
+      T.AppSemi _ t'@(T.UnChoice _ Pos _) _ -> t'
+    )
+
+sendType :: KindedTypeDecls -> Value -> ChannelEnd -> IO ChannelEnd
+sendType tdecls v (r, w, t) = do
+  atomically (writeTQueue w v)
+  return (r, w, case normalise tdecls t of
+      T.AppQuantS _ Pos _ _ t' -> t'
+    )
 
 wait :: Value -> IO Value
-wait (VChan c) = receive c <&> fst
+wait (VChan (r, _, _)) = handleBlockedRead $ do
+  v <- atomically (readTQueue r)
+  raiseOnZap v
+  return v
 
 close :: Value -> IO Value
 close (VChan (_, w, _)) = do
   atomically (writeTQueue w (VCons "()" []))
   return (VCons "()" [])
 
-cancel :: Value -> IO Value
-cancel v = zap v >> pure (VCons "()" [])
-
-zap :: Value -> IO ()
-zap v = case v of
-  (VCons _ vals) -> mapM_ zap vals
-  (VClosure mvals _ _) -> mapM_ (pure . fmap zap) mvals
-  (VIO ioval) -> ioval >>= \val -> zap val
-  (VChan (r, w, Lin{})) -> do -- no effect on shared channels
-    atomically (writeTQueue w VZap)
-    buffer <- atomically (buffer r)
-    mapM_ zap buffer
-    where
-      buffer r = do
-        mval <- tryReadTQueue r
-        case mval of
-          Nothing -> pure []
-          Just val -> (val :) <$> buffer r
-  (VPack _ val) -> zap val
-  _ -> pure ()
-
-raiseOnZap :: Value -> IO Value
-raiseOnZap v = case v of
-  VZap -> throwIO (UserError nullSpan "SomeException")
-  _ -> pure v
+cancel :: Value -> IO Value -- no effect on shared channels
+cancel v = clearBuffers [v] >> pure (VCons "()" [])
 
 -- | Report a failed file operation as the program's error, not the compiler's.
 asUserError :: IO a -> IO a
@@ -195,29 +238,32 @@ asUserError act = act `catch` \(e :: IOException) -> throwIO (UserError nullSpan
 openStream :: IOMode -> (Handle -> ChannelEnd -> IO ()) -> Value -> Value
 openStream mode serve path = VIO $ do
   h <- asUserError (openFile (fstToHsString path) mode)
-  (client, server) <- chan (Lin nullSpan)
+  (client, server) <- chan $ T.TName nullSpan (lt nullSpan) $ Identifier nullSpan $ case mode of
+    ReadMode -> "InStream"
+    WriteMode -> "OutStream"
+    AppendMode -> "OutStream"
   _ <- forkIO (asUserError (serve h server) `finally` hClose h)
   return (VChan client)
 
 -- TODO: unchecked against Dual InStream/OutStream, unlike the Prelude's own
 -- servers. Once more resources need one, add an opaque handle type and write
 -- these in FreeST instead.
-readFileServer :: Handle -> ChannelEnd -> IO ()
-readFileServer h c0 = receiveLabel c0 >>= \(label, c) -> case label of
-  "GetChar" -> hGetChar h >>= \x -> send (VChar x) c >>= readFileServer h
-  "GetLine" -> hGetLine h >>= \x -> send (hsToFstString x) c >>= readFileServer h
-  "IsEOF"   -> hIsEOF h >>= \x -> send (hsToFstBool x) c >>= readFileServer h
+readFileServer :: KindedTypeDecls -> Handle -> ChannelEnd -> IO ()
+readFileServer tdecls h c0 = receiveLabel tdecls c0 >>= \(label, c) -> case label of
+  "GetChar" -> hGetChar h >>= \x -> send tdecls (VChar x) c >>= readFileServer tdecls h
+  "GetLine" -> hGetLine h >>= \x -> send tdecls (hsToFstString x) c >>= readFileServer tdecls h
+  "IsEOF"   -> hIsEOF h >>= \x -> send tdecls (hsToFstBool x) c >>= readFileServer tdecls h
   "Stop"    -> hClose h >> void (close (VChan c))
   _         -> internalError ("readFileServer: unexpected label " ++ label)
 
-writeFileServer :: Handle -> ChannelEnd -> IO ()
-writeFileServer h c0 = receiveLabel c0 >>= \(label, c) -> case label of
-  "PutStr"   -> put c id
-  "PutStrLn" -> put c (++ "\n")
+writeFileServer :: KindedTypeDecls -> Handle -> ChannelEnd -> IO ()
+writeFileServer tdecls h c0 = receiveLabel tdecls c0 >>= \(label, c) -> case label of
+  "PutStr"   -> put tdecls c id
+  "PutStrLn" -> put tdecls c (++ "\n")
   "Stop"     -> hClose h >> void (close (VChan c))
   _          -> internalError ("writeFileServer: unexpected label " ++ label)
   where
-    put c f = receive c >>= \(v, c') -> hPutStr h (f (fstToHsString v)) >> writeFileServer h c'
+    put tdecls c f = receive tdecls c >>= \(v, c') -> hPutStr h (f (fstToHsString v)) >> writeFileServer tdecls h c'
 
 builtins :: Map.Map String Value
 builtins = Map.fromList
@@ -225,125 +271,125 @@ builtins = Map.fromList
   -- * Undefined
     ("undefined",     VBuiltin undefined)
   -- * Error
-  , ("error",         VBuiltin (VIO . throwIO . UserError nullSpan . fstToHsString))
+  , ("error",         VBuiltin (\_ -> VIO . throwIO . UserError nullSpan . fstToHsString))
 
   -- * Standard types, classes and related functions
   -- ** Basic datatypes
   -- *** Logical operators
-  , ("(&&)",          VBuiltin (\x -> VBuiltin (\y -> hsToFstBool (fstToHsBool x && fstToHsBool y))))
-  , ("(||)",          VBuiltin (\x -> VBuiltin (\y -> hsToFstBool (fstToHsBool x || fstToHsBool y))))
+  , ("(&&)",          VBuiltin (\_ x -> VBuiltin (\_ y -> hsToFstBool (fstToHsBool x && fstToHsBool y))))
+  , ("(||)",          VBuiltin (\_ x -> VBuiltin (\_ y -> hsToFstBool (fstToHsBool x || fstToHsBool y))))
   -- *** Strings
-  , ("ord",           VBuiltin (\(VChar c) -> VInt (ord c)))
-  , ("chr",           VBuiltin (\(VInt x) -> VChar (chr x)))
-  , ("(^^)",          VBuiltin (\s1 -> VBuiltin (\s2 -> hsToFstString (fstToHsString s1 ++ fstToHsString s2))))
-  , ("show",          VBuiltin (hsToFstString . unparse))
+  , ("ord",           VBuiltin (\_ (VChar c) -> VInt (ord c)))
+  , ("chr",           VBuiltin (\_ (VInt x) -> VChar (chr x)))
+  , ("(^^)",          VBuiltin (\_ s1 -> VBuiltin (\_ s2 -> hsToFstString (fstToHsString s1 ++ fstToHsString s2))))
+  , ("show",          VBuiltin (\_ -> hsToFstString . unparse))
   -- ** Comparison
-  , ("(<)",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> hsToFstBool (x < y))))
-  , ("(<=)",          VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> hsToFstBool (x <= y))))
-  , ("(==)",          VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> hsToFstBool (x == y))))
-  , ("(>=)",          VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> hsToFstBool (x >= y))))
-  , ("(>)",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> hsToFstBool (x > y))))
-  , ("(/=)",          VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> hsToFstBool (x /= y))))
-  , ("(>.)",          VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> hsToFstBool (x > y))))
-  , ("(<.)",          VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> hsToFstBool (x < y))))
-  , ("(>=.)",         VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> hsToFstBool (x >= y))))
-  , ("(<=.)",         VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> hsToFstBool (x <= y))))
+  , ("(<)",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> hsToFstBool (x < y))))
+  , ("(<=)",          VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> hsToFstBool (x <= y))))
+  , ("(==)",          VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> hsToFstBool (x == y))))
+  , ("(>=)",          VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> hsToFstBool (x >= y))))
+  , ("(>)",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> hsToFstBool (x > y))))
+  , ("(/=)",          VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> hsToFstBool (x /= y))))
+  , ("(>.)",          VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> hsToFstBool (x > y))))
+  , ("(<.)",          VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> hsToFstBool (x < y))))
+  , ("(>=.)",         VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> hsToFstBool (x >= y))))
+  , ("(<=.)",         VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> hsToFstBool (x <= y))))
   -- ** Numeric functions
   -- *** Int
-  , ("(+)",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (x + y))))
-  , ("(-)",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (x - y))))
-  , ("(*)",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (x * y))))
-  , ("(/)",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (div x y))))
-  , ("(^)",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (x ^ y))))
-  , ("subtract",      VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (x - y))))
-  , ("quot",          VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (quot x y))))
-  , ("rem",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (rem x y))))
-  , ("div",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (div x y))))
-  , ("mod",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (mod x y))))
-  , ("min",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (min x y))))
-  , ("max",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (max x y))))
-  , ("gcd",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (gcd x y))))
-  , ("lcm",           VBuiltin (\(VInt x) -> VBuiltin (\(VInt y) -> VInt (lcm x y))))
-  , ("succ",          VBuiltin (\(VInt x) -> VInt (succ x)))
-  , ("pred",          VBuiltin (\(VInt x) -> VInt (pred x)))
-  , ("abs",           VBuiltin (\(VInt x) -> VInt (abs x)))
-  , ("negate",        VBuiltin (\(VInt x) -> VInt (-x)))
-  , ("even",          VBuiltin (\(VInt x) -> hsToFstBool (even x)))
-  , ("odd",           VBuiltin (\(VInt x) -> hsToFstBool (odd x)))
+  , ("(+)",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (x + y))))
+  , ("(-)",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (x - y))))
+  , ("(*)",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (x * y))))
+  , ("(/)",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (div x y))))
+  , ("(^)",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (x ^ y))))
+  , ("subtract",      VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (x - y))))
+  , ("quot",          VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (quot x y))))
+  , ("rem",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (rem x y))))
+  , ("div",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (div x y))))
+  , ("mod",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (mod x y))))
+  , ("min",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (min x y))))
+  , ("max",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (max x y))))
+  , ("gcd",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (gcd x y))))
+  , ("lcm",           VBuiltin (\_ (VInt x) -> VBuiltin (\_ (VInt y) -> VInt (lcm x y))))
+  , ("succ",          VBuiltin (\_ (VInt x) -> VInt (succ x)))
+  , ("pred",          VBuiltin (\_ (VInt x) -> VInt (pred x)))
+  , ("abs",           VBuiltin (\_ (VInt x) -> VInt (abs x)))
+  , ("negate",        VBuiltin (\_ (VInt x) -> VInt (-x)))
+  , ("even",          VBuiltin (\_ (VInt x) -> hsToFstBool (even x)))
+  , ("odd",           VBuiltin (\_ (VInt x) -> hsToFstBool (odd x)))
   -- *** Float
-  , ("(+.)",          VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> VFloat (x + y))))
-  , ("(-.)",          VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> VFloat (x - y))))
-  , ("(*.)",          VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> VFloat (x * y))))
-  , ("(/.)",          VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> VFloat (x / y))))
-  , ("(**)",          VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> VFloat (x ** y))))
-  , ("maxF",          VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> VFloat (max x y))))
-  , ("minF",          VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> VFloat (min x y))))
-  , ("logBase",       VBuiltin (\(VFloat x) -> VBuiltin (\(VFloat y) -> VFloat (logBase x y))))
-  , ("absF",          VBuiltin (\(VFloat x) -> VFloat (abs x)))
-  , ("negateF",       VBuiltin (\(VFloat x) -> VFloat (negate x)))
-  , ("recip",         VBuiltin (\(VFloat x) -> VFloat (recip x)))
-  , ("exp",           VBuiltin (\(VFloat x) -> VFloat (exp x)))
-  , ("log",           VBuiltin (\(VFloat x) -> VFloat (log x)))
-  , ("sqrt",          VBuiltin (\(VFloat x) -> VFloat (sqrt x)))
-  , ("log1p",         VBuiltin (\(VFloat x) -> VFloat (log1p x)))
-  , ("expm1",         VBuiltin (\(VFloat x) -> VFloat (expm1 x)))
-  , ("log1pexp",      VBuiltin (\(VFloat x) -> VFloat (log1pexp x)))
-  , ("log1mexp",      VBuiltin (\(VFloat x) -> VFloat (log1mexp x)))
-  , ("sin",           VBuiltin (\(VFloat x) -> VFloat (sin x)))
-  , ("cos",           VBuiltin (\(VFloat x) -> VFloat (cos x)))
-  , ("tan",           VBuiltin (\(VFloat x) -> VFloat (tan x)))
-  , ("asin",          VBuiltin (\(VFloat x) -> VFloat (asin x)))
-  , ("acos",          VBuiltin (\(VFloat x) -> VFloat (acos x)))
-  , ("atan",          VBuiltin (\(VFloat x) -> VFloat (atan x)))
-  , ("sinh",          VBuiltin (\(VFloat x) -> VFloat (sinh x)))
-  , ("cosh",          VBuiltin (\(VFloat x) -> VFloat (cosh x)))
-  , ("tanh",          VBuiltin (\(VFloat x) -> VFloat (tanh x)))
-  , ("truncate",      VBuiltin (\(VFloat x) -> VInt (truncate x)))
-  , ("round",         VBuiltin (\(VFloat x) -> VInt (round x)))
-  , ("ceiling",       VBuiltin (\(VFloat x) -> VInt (ceiling x)))
-  , ("floor",         VBuiltin (\(VFloat x) -> VInt (floor x)))
+  , ("(+.)",          VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> VFloat (x + y))))
+  , ("(-.)",          VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> VFloat (x - y))))
+  , ("(*.)",          VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> VFloat (x * y))))
+  , ("(/.)",          VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> VFloat (x / y))))
+  , ("(**)",          VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> VFloat (x ** y))))
+  , ("maxF",          VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> VFloat (max x y))))
+  , ("minF",          VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> VFloat (min x y))))
+  , ("logBase",       VBuiltin (\_ (VFloat x) -> VBuiltin (\_ (VFloat y) -> VFloat (logBase x y))))
+  , ("absF",          VBuiltin (\_ (VFloat x) -> VFloat (abs x)))
+  , ("negateF",       VBuiltin (\_ (VFloat x) -> VFloat (negate x)))
+  , ("recip",         VBuiltin (\_ (VFloat x) -> VFloat (recip x)))
+  , ("exp",           VBuiltin (\_ (VFloat x) -> VFloat (exp x)))
+  , ("log",           VBuiltin (\_ (VFloat x) -> VFloat (log x)))
+  , ("sqrt",          VBuiltin (\_ (VFloat x) -> VFloat (sqrt x)))
+  , ("log1p",         VBuiltin (\_ (VFloat x) -> VFloat (log1p x)))
+  , ("expm1",         VBuiltin (\_ (VFloat x) -> VFloat (expm1 x)))
+  , ("log1pexp",      VBuiltin (\_ (VFloat x) -> VFloat (log1pexp x)))
+  , ("log1mexp",      VBuiltin (\_ (VFloat x) -> VFloat (log1mexp x)))
+  , ("sin",           VBuiltin (\_ (VFloat x) -> VFloat (sin x)))
+  , ("cos",           VBuiltin (\_ (VFloat x) -> VFloat (cos x)))
+  , ("tan",           VBuiltin (\_ (VFloat x) -> VFloat (tan x)))
+  , ("asin",          VBuiltin (\_ (VFloat x) -> VFloat (asin x)))
+  , ("acos",          VBuiltin (\_ (VFloat x) -> VFloat (acos x)))
+  , ("atan",          VBuiltin (\_ (VFloat x) -> VFloat (atan x)))
+  , ("sinh",          VBuiltin (\_ (VFloat x) -> VFloat (sinh x)))
+  , ("cosh",          VBuiltin (\_ (VFloat x) -> VFloat (cosh x)))
+  , ("tanh",          VBuiltin (\_ (VFloat x) -> VFloat (tanh x)))
+  , ("truncate",      VBuiltin (\_ (VFloat x) -> VInt (truncate x)))
+  , ("round",         VBuiltin (\_ (VFloat x) -> VInt (round x)))
+  , ("ceiling",       VBuiltin (\_ (VFloat x) -> VInt (ceiling x)))
+  , ("floor",         VBuiltin (\_ (VFloat x) -> VInt (floor x)))
   , ("pi",            VFloat pi)
-  , ("fromInteger",   VBuiltin (\(VInt x) -> VFloat (fromInteger (toInteger x))))
+  , ("fromInteger",   VBuiltin (\_ (VInt x) -> VFloat (fromInteger (toInteger x))))
   -- * Concurrency
   , ("fork",          VFork)
-  , ("send",          VBuiltin (\val -> VBuiltin (\(VChan c) -> VIO $ VChan <$> send val c)))
-  , ("receive",       VBuiltin (\(VChan c) -> VIO $ receive c >>= \(val, c) -> return $ VCons "(,)" [val, VChan c]))
-  , ("wait",          VBuiltin (VIO . wait))
-  , ("close",         VBuiltin (VIO . close))
-  , ("cancel",        VBuiltin (VIO . cancel))
-  , ("send_",         VBuiltin (\val -> VBuiltin (\chan@(VChan c) -> VIO $ chan <$ send val c)))
-  , ("receive_",      VBuiltin (\(VChan c) -> VIO $ receive c >>= \(val, c) -> return val))
+  , ("send",          VBuiltin (\tdecls val -> VBuiltin (\_ (VChan c) -> VIO $ VChan <$> send tdecls val c)))
+  , ("receive",       VBuiltin (\tdecls (VChan c) -> VIO $ receive tdecls c >>= \(val, c) -> return $ VCons "(,)" [val, VChan c]))
+  , ("wait",          VBuiltin (\_ chan -> VIO $ wait chan))
+  , ("close",         VBuiltin (\_ -> VIO . close))
+  , ("cancel",        VBuiltin (\_ -> VIO . cancel))
+  , ("send_",         VBuiltin (\tdecls val -> VBuiltin (\_ chan@(VChan c) -> VIO $ chan <$ send_ tdecls val c)))
+  , ("receive_",      VBuiltin (\tdecls (VChan c) -> VIO $ receive_ tdecls c >>= \(val, c) -> return val))
   -- * I/O
   -- ** Standard I/O
   -- *** stdin
   -- **** Internal stdin functions
-  , ("internalGetChar",       VBuiltin (const $ VIO $ VChar <$> charMode getChar))
-  , ("internalGetLine",       VBuiltin (const $ VIO $ hsToFstString <$> getLine))
-  , ("internalIsEOF",         VBuiltin (const $ VIO $ hsToFstBool <$> isEOF))
+  , ("internalGetChar",       VBuiltin (\_ -> const $ VIO $ VChar <$> charMode getChar))
+  , ("internalGetLine",       VBuiltin (\_ -> const $ VIO $ hsToFstString <$> getLine))
+  , ("internalIsEOF",         VBuiltin (\_ -> const $ VIO $ hsToFstBool <$> isEOF))
   -- getContents makes sense in a lazy setting; FreeST is eager.
   -- , ("internalGetContents",   VBuiltin (const $ VIO $ hsToFstString <$> getContents))
   -- *** stdout and stderr
   -- **** Internal output functions
-  , ("internalPutStrOut",     VBuiltin (putStrOn stdout))
-  , ("internalPutStrErr",     VBuiltin (putStrOn stderr))
+  , ("internalPutStrOut",     VBuiltin (\_ -> putStrOn stdout))
+  , ("internalPutStrErr",     VBuiltin (\_ -> putStrOn stderr))
   -- ** Files
-  , ("openReadFile",          VBuiltin (openStream ReadMode   readFileServer))
-  , ("openWriteFile",         VBuiltin (openStream WriteMode  writeFileServer))
-  , ("openAppendFile",        VBuiltin (openStream AppendMode writeFileServer))
+  , ("openReadFile",          VBuiltin (openStream ReadMode   . readFileServer))
+  , ("openWriteFile",         VBuiltin (openStream WriteMode  . writeFileServer))
+  , ("openAppendFile",        VBuiltin (openStream AppendMode . writeFileServer))
   -- ** Command line
-  , ("getArgs",               VBuiltin (const $ VIO $ hsToFstList hsToFstString <$> getArgs))
-  , ("getProgName",           VBuiltin (const $ VIO $ hsToFstString <$> getProgName))
+  , ("getArgs",               VBuiltin (\_ -> const $ VIO $ hsToFstList hsToFstString <$> getArgs))
+  , ("getProgName",           VBuiltin (\_ -> const $ VIO $ hsToFstString <$> getProgName))
   -- ** Environment
-  , ("lookupEnv",             VBuiltin (\s -> VIO $ hsToFstMaybe <$> lookupEnv (fstToHsString s)))
-  , ("getEnvironment",        VBuiltin (const $ VIO $ hsToFstList hsToFstPair <$> getEnvironment))
+  , ("lookupEnv",             VBuiltin (\_ s -> VIO $ hsToFstMaybe <$> lookupEnv (fstToHsString s)))
+  , ("getEnvironment",        VBuiltin (\_ -> const $ VIO $ hsToFstList hsToFstPair <$> getEnvironment))
   -- ** Exiting
-  , ("exitWith",              VBuiltin (\(VInt n) -> VIO $ throwIO $ exitCode n))
+  , ("exitWith",              VBuiltin (\_ (VInt n) -> VIO $ throwIO $ exitCode n))
 
   -- * Other Expressions
-  , ("select",        VBuiltin (\(VLabel label) -> VBuiltin (\(VChan c) -> VIO $ VChan <$> sendLabel label c)))
-  , ("select_",       VBuiltin (\(VLabel label) -> VBuiltin (\chan@(VChan c) -> VIO $ chan <$ sendLabel label c)))
-  , ("sendType",      VBuiltin (\(VChan c) -> VIO $ VChan <$> send (VCons "()" []) c))
+  , ("select",        VBuiltin (\tdecls (VLabel label) -> VBuiltin (\_ (VChan c) -> VIO $ VChan <$> sendLabel tdecls label c)))
+  , ("select_",       VBuiltin (\tdecls (VLabel label) -> VBuiltin (\_ chan@(VChan c) -> VIO $ chan <$ sendLabel_ tdecls label c)))
+  , ("sendType",      VBuiltin (\tdecls (VChan c) -> VIO $ VChan <$> sendType tdecls (VCons "()" []) c))
   -- The received type is erased at runtime; the returned 'VPack' exists so
   -- that an explicit @let (\@a, c) = receiveType c@ pattern can decompose it.
-  , ("receiveType",   VBuiltin (\(VChan c) -> VIO $ receive c >>= \(_, c) -> return $ VPack [] (VChan c)))
+  , ("receiveType",   VBuiltin (\tdecls (VChan c) -> VIO $ receiveType tdecls c >>= \(_, c) -> return $ VPack [] (VChan c)))
   ]
