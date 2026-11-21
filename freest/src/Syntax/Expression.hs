@@ -405,7 +405,7 @@ freeVars = \case
   Case _ target alternatives  -> let freeVarsAlts = Set.unions $ map (\(pat, rhs) -> freeVarsRHS rhs Set.\\ allVarsPat pat) alternatives
                                 in freeVars target `Set.union` freeVarsAlts
   If _ ifExp thenExp elseExp  -> freeVars ifExp `Set.union` freeVars thenExp `Set.union` freeVars elseExp
-  Try _ try _ inn unl         -> freeVars try `Set.union` freeVars inn `Set.union` freeVars unl
+  Try _ try pat inn unl       -> freeVars try `Set.union` (freeVars inn Set.\\ allVarsPat pat) `Set.union` freeVars unl
   List _ es                   -> Set.unions (map freeVars es)
   SectionL _ e op             -> freeVars e `Set.union` opVar op
   SectionR _ _ op e           -> opVar op `Set.union` freeVars e

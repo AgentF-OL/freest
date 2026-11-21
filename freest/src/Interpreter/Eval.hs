@@ -310,7 +310,7 @@ eval ctx (E.Try _ tryExp pat asinExp unlessExp) = do
   where
     unmatched :: IO r
     unmatched = throwIO (NonExhaustivePatterns (B.getSpan pat)) :: IO r
-eval ctx (E.Raise s) = throwIO (UserError s "SomeException")
+eval ctx (E.Raise s) = throwIO (SomeException s "SomeException")
 eval _ (E.Channel s t) = do
   -- obtain channel ends for a fresh channel
   (chanL, chanR) <- case TK.kindOf t of K.Proper _ m _ -> chan m
