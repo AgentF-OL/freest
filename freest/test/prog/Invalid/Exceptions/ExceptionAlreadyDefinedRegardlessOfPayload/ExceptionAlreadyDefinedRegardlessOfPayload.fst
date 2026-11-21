@@ -1,0 +1,2 @@
+exception MyCustomException String
+exception MyCustomException Int

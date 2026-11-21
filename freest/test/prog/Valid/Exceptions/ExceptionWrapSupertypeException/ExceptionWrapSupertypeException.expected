@@ -1,0 +1,5 @@
+MyWrapperException
+1
+"I am a wrapper!"
+MyCustomException
+-1

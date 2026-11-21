@@ -1,0 +1,3 @@
+MyChildException
+"I am also a MyCustomException with its payload!"
+42
